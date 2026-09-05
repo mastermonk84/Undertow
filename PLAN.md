@@ -39,14 +39,20 @@ Two vehicles, one loop:
 3. **Rope model: single taut-only distance constraint** between pod and cargo.
    It pulls, never pushes; impulses are split by inverse mass, which gives
    "heavy cargo drags the pod" and momentum conservation for free. No segmented
-   rope simulation — cosmetic sag arrives with the Milestone 5 feel pass.
-4. **Input:** keyboard first, gamepad with Milestone 3, touch later (secondary).
+   rope simulation — cosmetic sag arrives with the feel-pass milestone.
+4. **Input:** keyboard first, gamepad with Milestone 4, touch later (secondary).
    Controls are digital (rotate/thrust), so deferring gamepad costs no feel work.
 5. **Upgrades install by delivery:** tow the item back to the landed ship and
    bring it into the dock zone. A successful pad landing repairs the hull
-   (refined when death/respawn arrives in Milestone 3).
-6. Placeholder vector/rect art until the Milestone 5 feel pass. Logical
+   (refined when death/respawn arrives in Milestone 4).
+6. Placeholder vector/rect art until the feel-pass milestone. Logical
    resolution ~960×540, scaled to fit, crisp edges.
+7. **Fresh-start revision:** with no prototype to match, tuning feel with the
+   designer is the critical path, so the milestone cut changed: Milestone 1 is
+   now a feel sandbox (ship landing + pod/rope towing only), the full loop
+   moved to Milestone 2, and the Vercel deploy moved from last to first so
+   every push is playable at a URL. Vite HMR on `src/tune.ts` doubles as live
+   feel tuning — tweak a constant and the running game updates.
 
 ## Stack
 
@@ -64,16 +70,16 @@ index.html, package.json, tsconfig.json, vite.config.ts
 src/main.ts            bootstrap: wires loop + input + game + render
 src/tune.ts            ALL feel constants in one place
 src/core/loop.ts       fixed 60 Hz timestep, accumulator, render interpolation
-src/core/input.ts      keyboard now; gamepad (M3), touch (later)
-src/core/camera.ts     follow + room clamping (transitions in M2)
-src/core/audio.ts      (M5)
+src/core/input.ts      keyboard now; gamepad (M4), touch (later)
+src/core/camera.ts     follow + room clamping (transitions in M3)
+src/core/audio.ts      (M6)
 src/physics/body.ts    Body type, semi-implicit Euler integrate — pure fns
 src/physics/tiles.ts   AABB/circle vs tile-grid collision, axis-separated — pure fns
 src/physics/rope.ts    taut distance constraint, inverse-mass impulse share — pure fns
 src/physics/landing.ts landing classification (soft / hard / crash) — pure fns
 src/world/room.ts      map format: text grid + object list; parser
-src/world/rooms/*.ts   hand-authored rooms (M1: one test room)
-src/world/save.ts      (M3) localStorage save state
+src/world/rooms/*.ts   hand-authored rooms (M1: one sandbox room)
+src/world/save.ts      (M4) localStorage save state
 src/game/state.ts      GameState + per-tick update orchestration, mode machine
 src/game/ship.ts       heavy ship: thrust, tilt, hull, landing, lift-off gate
 src/game/pod.ts        rotate+thrust, fuel, launch/dock, grapple attach/release
@@ -109,12 +115,12 @@ mutates game state.
 
 Per room: a text grid (`#` rock, `.` air, `=` pad surface, …) plus a typed
 object list: pads (id, difficulty), items (kind, mass, position), pressure
-plates, doors (linked by id), relic, and room exits (Milestone 2). Rooms are
-plain TypeScript data modules — no loader framework. Milestone 1 uses one room
-in this same shape; Milestone 2 makes the format real with multiple rooms and
-camera transitions.
+plates, doors (linked by id), relic, and room exits (Milestone 3). Rooms are
+plain TypeScript data modules — no loader framework. Milestones 1–2 use this
+same shape with one or two rooms; Milestone 3 makes the format real with the
+full map and camera transitions.
 
-## Save format (lands in Milestone 3; state shapes anticipate it from day one)
+## Save format (lands in Milestone 4; state shapes anticipate it from day one)
 
 ```
 { version, currentPadId, hull, fuel, upgradesInstalled[], doorsOpen[],
@@ -128,21 +134,21 @@ Stored in localStorage, versioned for migration.
 Each milestone ends with a report: what to test by hand, what I'm unsure about,
 what I'd cut. No milestone starts without explicit approval.
 
-### Milestone 1 — the full loop, rebuilt from the design *(not started)*
+### Milestone 1 — feel sandbox + deploy *(not started)*
 
-Playable route: start ship landed on **Pad A** with pod docked → launch pod →
-grapple the **engine upgrade** → tow it home, dock (installs; ship thrust
-improves) → lift off → fly to **Pad B** (trickier approach) → soft-land →
-launch pod → tow the **crate** onto the **pressure plate** → **door** opens →
-pod flies through, grabs the **relic** → return to ship → win.
+Only the two feel-critical systems, in front of the designer as fast as
+possible: ship flight/landing and pod+rope towing.
 
-One larger-than-screen room with camera follow; both pads and all objects
-above; fuel and hull HUD; a simple mode machine (ship-flight / landed /
-pod-out / dead / won).
+Scaffold Vite/TS/Vitest. Physics pure functions test-first. One
+larger-than-screen sandbox room with camera follow. Ship flight and landing on
+two pads of different difficulty; hull damage and crash. Pod launch, dock,
+refuel, fuel limit, grapple, and two loose test masses — one light, one heavy —
+to tow around. Fuel and hull HUD. Vercel deploy from the first push so every
+subsequent push is playable at a URL.
 
-Build order: scaffold Vite+TS+Vitest → physics pure functions test-first →
-loop/input/camera + ship flight and landing → pod/fuel/grapple/rope +
-towables → objects + win/lose + HUD → tuning pass + milestone report.
+Build order: scaffold + deploy pipeline → physics pure functions test-first →
+loop/input/camera + ship flight and landing → pod/fuel/grapple/rope + test
+masses → HUD → tuning pass + milestone report.
 
 Physics tests:
 - rope: mass ratio 1:9 → acceleration split 9:1; the impulse conserves
@@ -150,36 +156,44 @@ Physics tests:
 - landing: just-under thresholds → soft; just-over → damage; damage monotonic
   in impact speed; crash threshold.
 - tiles: a body comes to rest on the floor; a wall stops horizontal motion;
-  corner penetration resolves without tunneling at Milestone 1 speeds.
+  corner penetration resolves without tunneling at sandbox speeds.
 
-Acceptance (replaces "plays the same as v2"): the route is playable end to end;
-`vitest run` and `vite build` are green; and the feel checklist holds — the pod
-is floaty but controllable, heavy cargo visibly and physically drags, a careful
+Acceptance: physics tests and `vite build` green; the sandbox is live at a URL;
+the designer plays it and signs off on (or redlines) the feel — the pod is
+floaty but controllable, heavy cargo visibly and physically drags, a careful
 landing succeeds reliably and a careless one hurts.
 
-### Milestone 2 — rooms and a real map
+### Milestone 2 — the full loop
+
+Upgrade delivery and install at the ship (engine upgrade → stronger ship
+thrust), crate + pressure plate + door, relic, win/lose states, and the
+complete route playable end to end: Pad A → tow engine home → land Pad B →
+crate on plate → door → relic → win. Optional: a deterministic input-replay
+test locking the route (the fixed timestep makes the sim reproducible).
+
+### Milestone 3 — rooms and a real map
 
 Real map format, camera transitions between rooms, a hand-authored map of 6–8
 rooms with 3 pads of increasing landing difficulty.
 
-### Milestone 3 — save/load and death
+### Milestone 4 — save/load and death
 
 Save/load (localStorage), pause menu, restart from pad, death and respawn feel.
 Gamepad input.
 
-### Milestone 4 — grapple upgrades and combat seed
+### Milestone 5 — grapple upgrades and combat seed
 
 Grapple upgrades that change rope behaviour (length, stiffness, wall-grapple
 slingshot). One pod weapon and destructible barriers.
 
-### Milestone 5 — feel pass
+### Milestone 6 — feel pass
 
 Audio (thrust, rope strain, touchdown, impacts), particles, screen shake.
 Cosmetic rope sag.
 
-### Milestone 6 — boss and ship
+### Milestone 7 — boss and ship
 
-First boss, title screen, deploy to Vercel.
+First boss, title screen, production polish on the already-live Vercel deploy.
 
 ## Rules (restated so they travel with the repo)
 
