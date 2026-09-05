@@ -1,7 +1,7 @@
-// Towable items and (from M2) plates, doors, and delivery.
+// Towable items, pressure plates, and doors.
 
 import { accelerate, beginTick, makeBody, type Body } from '../physics/body'
-import { moveBody, type TileMap } from '../physics/tiles'
+import { AIR, DOOR, moveBody, setCell, type TileMap } from '../physics/tiles'
 import { TUNE } from '../tune'
 import type { World, WorldItemDef } from '../world/room'
 
@@ -25,6 +25,34 @@ export function updateItems(items: Item[], map: TileMap, dt: number): void {
     beginTick(item.body)
     accelerate(item.body, 0, TUNE.gravity, dt, TUNE.maxSpeed)
     moveBody(item.body, map, dt)
+  }
+}
+
+/** Plates press while any undelivered item rests on them; doors track their plate. */
+export function updatePlatesAndDoors(world: World, items: Item[]): void {
+  for (const plate of world.plates) {
+    plate.pressed = items.some((item) => {
+      if (item.delivered) return false
+      const b = item.body
+      const r = plate.rect
+      return (
+        b.x + b.w / 2 > r.x &&
+        b.x - b.w / 2 < r.x + r.w &&
+        b.y + b.h / 2 > r.y &&
+        b.y - b.h / 2 < r.y + r.h + 2
+      )
+    })
+  }
+
+  for (const door of world.doors) {
+    const plate = world.plates.find((p) => p.id === door.openBy)
+    const shouldOpen = plate?.pressed ?? door.open
+    if (shouldOpen !== door.open) {
+      door.open = shouldOpen
+      for (const t of door.tiles) {
+        setCell(world.map, t.tx, t.ty, shouldOpen ? AIR : DOOR)
+      }
+    }
   }
 }
 

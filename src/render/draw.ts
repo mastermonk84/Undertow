@@ -36,6 +36,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, alpha: num
   ctx.translate(-Math.round(cam.x), -Math.round(cam.y))
 
   drawTiles(ctx, state)
+  drawPlates(ctx, state)
   for (const item of state.items) drawItem(ctx, item, alpha)
   drawRope(ctx, state, alpha)
   drawShip(ctx, state, alpha)
@@ -83,6 +84,14 @@ function drawTiles(ctx: CanvasRenderingContext2D, state: GameState): void {
         ctx.strokeRect(x + 1.5, y + 1.5, s - 3, s - 3)
       }
     }
+  }
+}
+
+function drawPlates(ctx: CanvasRenderingContext2D, state: GameState): void {
+  for (const plate of state.world.plates) {
+    const r = plate.rect
+    ctx.fillStyle = plate.pressed ? '#3fe08f' : '#2a6a4d'
+    ctx.fillRect(r.x + 2, r.y + r.h - 5, r.w - 4, 5)
   }
 }
 
@@ -255,6 +264,27 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.fillStyle = '#f4f7fa'
     ctx.textAlign = 'center'
     ctx.fillText(hud.message, vw / 2, 60)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.upgrades.length > 0) {
+    ctx.textAlign = 'right'
+    ctx.fillStyle = 'rgba(150,190,230,0.7)'
+    ctx.fillText(hud.upgrades.join(' · '), vw - 14, 16)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.mode === 'won') {
+    ctx.fillStyle = 'rgba(6,10,8,0.75)'
+    ctx.fillRect(0, 0, vw, vh)
+    ctx.textAlign = 'center'
+    ctx.font = '26px monospace'
+    ctx.fillStyle = '#ffd75e'
+    ctx.fillText('RELIC SECURED', vw / 2, vh / 2 - 40)
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#c8d2dd'
+    ctx.fillText('The first piece of the salvage. Something below stirs.', vw / 2, vh / 2 - 4)
+    ctx.fillText('Press Enter to play again', vw / 2, vh / 2 + 24)
     ctx.textAlign = 'left'
   }
 

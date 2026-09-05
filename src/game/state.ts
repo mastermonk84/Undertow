@@ -5,16 +5,24 @@ import { makeCamera, updateCamera, type Camera } from '../core/camera'
 import type { InputState } from '../core/input'
 import { classifyLanding } from '../physics/landing'
 import { solveRope } from '../physics/rope'
-import { PAD, groundCodeUnder } from '../physics/tiles'
+import { DOOR, PAD, groundCodeUnder, setCell } from '../physics/tiles'
 import { TUNE } from '../tune'
 import { roomAt, type Pad as WorldPad, type World } from '../world/room'
-import { makeItems, nearestItem, updateItems, type Item } from './objects'
+import { makeItems, nearestItem, updateItems, updatePlatesAndDoors, type Item } from './objects'
 import { dockPoint, makeShip, updateShipFlight, type Ship } from './ship'
 import { launchPod, makePod, updatePodFlight, type Pod } from './pod'
 
 export type Mode = 'flight' | 'landed' | 'pod' | 'dead' | 'won'
 
+export interface Upgrades {
+  engine: boolean
+  fueltank: boolean
+  grapple: boolean
+  weapon: boolean
+}
+
 export interface GameState {
+  upgrades: Upgrades
   mode: Mode
   ship: Ship
   pod: Pod
@@ -39,9 +47,17 @@ function say(state: GameState, text: string, seconds = 2.5): void {
 export function newGame(world: World, startPadId: string): GameState {
   const pad = world.pads.find((p) => p.id === startPadId)
   if (!pad) throw new Error(`no pad ${startPadId}`)
+
+  // The world's doors and plates mutate the shared tile map — reset them.
+  for (const door of world.doors) {
+    door.open = false
+    for (const t of door.tiles) setCell(world.map, t.tx, t.ty, DOOR)
+  }
+  for (const plate of world.plates) plate.pressed = false
   const ship = makeShip(pad.rect.x + pad.rect.w / 2, pad.rect.y - TUNE.ship.h / 2 - 0.1)
 
   const state: GameState = {
+    upgrades: { engine: false, fueltank: false, grapple: false, weapon: false },
     mode: 'landed',
     ship,
     pod: makePod(),
@@ -80,7 +96,8 @@ function die(state: GameState, reason: string): void {
 }
 
 function updateFlight(state: GameState, input: InputState, dt: number): void {
-  const res = updateShipFlight(state.ship, input, state.world.map, dt)
+  const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
+  const res = updateShipFlight(state.ship, input, state.world.map, dt, thrustMul)
 
   if (res.wallImpact > TUNE.landing.softVx) {
     state.ship.hull -= (res.wallImpact - TUNE.landing.softVx) * TUNE.ship.groundScrapeDamage
@@ -177,9 +194,47 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   if (!pod.dockArmed) {
     if (dockDist > TUNE.pod.dockRange * 1.5) pod.dockArmed = true
   } else if (dockDist < TUNE.pod.dockRange) {
+    const towed = pod.grappled ? state.items.find((i) => i.def.id === pod.grappled) : undefined
     pod.grappled = null
     state.mode = 'landed'
     say(state, 'Pod docked. Fuel topped up.', 1.6)
+    if (towed) deliver(state, towed)
+  }
+}
+
+/** A towed item counts as delivered if it's close to the ship when the pod docks. */
+function deliver(state: GameState, item: Item): void {
+  const b = state.ship.body
+  if (Math.hypot(item.body.x - b.x, item.body.y - b.y) > TUNE.delivery.range) return
+
+  switch (item.def.kind) {
+    case 'engine':
+      item.delivered = true
+      state.upgrades.engine = true
+      say(state, 'Engine installed. The ship feels lighter.', 3)
+      break
+    case 'fueltank':
+      item.delivered = true
+      state.upgrades.fueltank = true
+      say(state, 'Auxiliary fuel tank fitted.', 3)
+      break
+    case 'grapple':
+      item.delivered = true
+      state.upgrades.grapple = true
+      say(state, 'Heavy grapple winch installed.', 3)
+      break
+    case 'weapon':
+      item.delivered = true
+      state.upgrades.weapon = true
+      say(state, 'Mining cutter mounted on the pod.', 3)
+      break
+    case 'relic':
+      item.delivered = true
+      state.mode = 'won'
+      break
+    default:
+      // Rocks, boulders, crates just get set down.
+      break
   }
 }
 
@@ -204,11 +259,13 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
       if (input.confirm) return newGame(state.world, 'padA')
       break
     case 'won':
+      if (input.confirm) return newGame(state.world, 'padA')
       break
   }
 
-  // Items exist in the world whatever the mode.
+  // Items, plates, and doors exist in the world whatever the mode.
   updateItems(state.items, state.world.map, dt)
+  updatePlatesAndDoors(state.world, state.items)
 
   const focus = state.mode === 'pod' ? state.pod.body : state.ship.body
   const room = roomAt(state.world, focus.x, focus.y)

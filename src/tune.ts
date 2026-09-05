@@ -12,7 +12,7 @@ export const TUNE = {
     w: 44,
     h: 26,
     mass: 12,
-    mainThrust: 300, // px/s^2 while main thruster burns
+    mainThrust: 260, // px/s^2 while main thruster burns (engine upgrade multiplies)
     latThrust: 110, // px/s^2 sideways
     tiltMax: 0.32, // rad of visual+landing tilt at full lateral burn
     tiltRate: 3.0, // rad/s toward target tilt
@@ -36,6 +36,14 @@ export const TUNE = {
     length: 96,
     grabRange: 38, // px from pod centre to item centre
     stiffness: 1.0,
+  },
+
+  delivery: {
+    range: 150, // px from ship centre for a towed item to count as delivered on dock
+  },
+
+  upgrades: {
+    engineThrustMul: 1.45, // ship main+lateral thrust multiplier
   },
 
   landing: {

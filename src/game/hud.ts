@@ -12,6 +12,7 @@ export interface Hud {
   message: string
   deathReason: string
   mode: GameState['mode']
+  upgrades: string[]
 }
 
 export function buildHud(state: GameState): Hud {
@@ -39,10 +40,18 @@ export function buildHud(state: GameState): Hud {
       prompt = 'Enter retry'
       break
     case 'won':
+      prompt = 'Enter play again'
       break
   }
 
+  const upgrades: string[] = []
+  if (state.upgrades.engine) upgrades.push('ENGINE')
+  if (state.upgrades.fueltank) upgrades.push('AUX FUEL')
+  if (state.upgrades.grapple) upgrades.push('WINCH')
+  if (state.upgrades.weapon) upgrades.push('CUTTER')
+
   return {
+    upgrades,
     hull: Math.max(0, state.ship.hull) / TUNE.ship.hullMax,
     fuel: state.pod.fuel / TUNE.pod.fuelMax,
     prompt,

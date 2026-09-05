@@ -32,6 +32,9 @@ startLoop(
   },
 )
 
+// Debug/playtest handle: inspect or poke the live state from the console.
+Object.defineProperty(window, '__undertow', { get: () => state })
+
 // Live feel tuning: edits to tune.ts hot-swap into the running sim.
 if (import.meta.hot) {
   import.meta.hot.accept('./tune', (mod) => {

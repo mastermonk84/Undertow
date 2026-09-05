@@ -34,6 +34,7 @@ export function updateShipFlight(
   input: InputState,
   map: TileMap,
   dt: number,
+  thrustMul = 1,
 ): ShipFlightResult {
   const t = TUNE.ship
   ship.latDir = (input.right ? 1 : 0) - (input.left ? 1 : 0)
@@ -44,8 +45,8 @@ export function updateShipFlight(
   const maxStep = t.tiltRate * dt
   ship.tilt += Math.abs(dTilt) <= maxStep ? dTilt : Math.sign(dTilt) * maxStep
 
-  const ax = ship.latDir * t.latThrust
-  const ay = (ship.thrusting ? -t.mainThrust : 0) + TUNE.gravity
+  const ax = ship.latDir * t.latThrust * thrustMul
+  const ay = (ship.thrusting ? -t.mainThrust * thrustMul : 0) + TUNE.gravity
 
   beginTick(ship.body)
   accelerate(ship.body, ax, ay, dt, TUNE.maxSpeed)
