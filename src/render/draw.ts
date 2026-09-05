@@ -1,0 +1,291 @@
+// Canvas 2D drawing only. Reads GameState + Hud, never mutates game logic.
+
+import type { Body } from '../physics/body'
+import { AIR, BARRIER, DOOR, PAD, ROCK, cellAt } from '../physics/tiles'
+import { TUNE } from '../tune'
+import { buildHud } from '../game/hud'
+import type { GameState } from '../game/state'
+import type { Item } from '../game/objects'
+
+function ix(b: Body, alpha: number): number {
+  return b.px + (b.x - b.px) * alpha
+}
+
+function iy(b: Body, alpha: number): number {
+  return b.py + (b.y - b.py) * alpha
+}
+
+const ROCK_FILL = '#242b35'
+const ROCK_EDGE = '#3d4a5c'
+const PAD_FILL = '#14402f'
+const PAD_EDGE = '#3fe08f'
+const DOOR_FILL = '#4a3566'
+const BARRIER_FILL = '#5e2c2c'
+
+export function draw(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  const { w: vw, h: vh } = TUNE.view
+  const cam = state.camera
+
+  const grad = ctx.createLinearGradient(0, 0, 0, vh)
+  grad.addColorStop(0, '#0a0e18')
+  grad.addColorStop(1, '#101725')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, vw, vh)
+
+  ctx.save()
+  ctx.translate(-Math.round(cam.x), -Math.round(cam.y))
+
+  drawTiles(ctx, state)
+  for (const item of state.items) drawItem(ctx, item, alpha)
+  drawRope(ctx, state, alpha)
+  drawShip(ctx, state, alpha)
+  if (state.mode === 'pod') drawPod(ctx, state, alpha)
+
+  ctx.restore()
+
+  drawHud(ctx, state)
+}
+
+function drawTiles(ctx: CanvasRenderingContext2D, state: GameState): void {
+  const map = state.world.map
+  const s = map.size
+  const cam = state.camera
+  const x0 = Math.max(0, Math.floor(cam.x / s))
+  const x1 = Math.min(map.wTiles - 1, Math.ceil((cam.x + TUNE.view.w) / s))
+  const y0 = Math.max(0, Math.floor(cam.y / s))
+  const y1 = Math.min(map.hTiles - 1, Math.ceil((cam.y + TUNE.view.h) / s))
+
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const c = cellAt(map, tx, ty)
+      if (c === AIR) continue
+      const x = tx * s
+      const y = ty * s
+      if (c === ROCK) {
+        ctx.fillStyle = ROCK_FILL
+        ctx.fillRect(x, y, s, s)
+        if (cellAt(map, tx, ty - 1) === AIR) {
+          ctx.fillStyle = ROCK_EDGE
+          ctx.fillRect(x, y, s, 3)
+        }
+      } else if (c === PAD) {
+        ctx.fillStyle = PAD_FILL
+        ctx.fillRect(x, y, s, s)
+        ctx.fillStyle = PAD_EDGE
+        ctx.fillRect(x, y, s, 3)
+      } else if (c === DOOR) {
+        ctx.fillStyle = DOOR_FILL
+        ctx.fillRect(x + 2, y, s - 4, s)
+      } else if (c === BARRIER) {
+        ctx.fillStyle = BARRIER_FILL
+        ctx.fillRect(x, y, s, s)
+        ctx.strokeStyle = '#8a4444'
+        ctx.strokeRect(x + 1.5, y + 1.5, s - 3, s - 3)
+      }
+    }
+  }
+}
+
+const ITEM_COLORS: Record<string, string> = {
+  rock: '#8d99a6',
+  boulder: '#5f6a76',
+  crate: '#b08a4f',
+  engine: '#5fa8f5',
+  fueltank: '#4fd6c2',
+  grapple: '#c78ef0',
+  weapon: '#f08e8e',
+  relic: '#ffd75e',
+}
+
+function drawItem(ctx: CanvasRenderingContext2D, item: Item, alpha: number): void {
+  if (item.delivered) return
+  const x = ix(item.body, alpha)
+  const y = iy(item.body, alpha)
+  const r = item.body.w / 2
+  ctx.fillStyle = ITEM_COLORS[item.def.kind] ?? '#ffffff'
+  if (item.def.kind === 'crate') {
+    ctx.fillRect(x - r, y - r, r * 2, r * 2)
+    ctx.strokeStyle = '#7a5c2e'
+    ctx.strokeRect(x - r + 1.5, y - r + 1.5, r * 2 - 3, r * 2 - 3)
+  } else if (item.def.kind === 'relic') {
+    ctx.beginPath()
+    ctx.moveTo(x, y - r)
+    ctx.lineTo(x + r, y)
+    ctx.lineTo(x, y + r)
+    ctx.lineTo(x - r, y)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'
+    ctx.beginPath()
+    ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.4, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+function drawRope(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  if (state.mode !== 'pod' || !state.pod.grappled) return
+  const item = state.items.find((i) => i.def.id === state.pod.grappled)
+  if (!item) return
+  ctx.strokeStyle = state.ropeTaut ? '#d8e0ea' : 'rgba(216,224,234,0.45)'
+  ctx.lineWidth = state.ropeTaut ? 1.5 : 1
+  ctx.beginPath()
+  ctx.moveTo(ix(state.pod.body, alpha), iy(state.pod.body, alpha))
+  ctx.lineTo(ix(item.body, alpha), iy(item.body, alpha))
+  ctx.stroke()
+  ctx.lineWidth = 1
+}
+
+function drawShip(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  const ship = state.ship
+  const x = ix(ship.body, alpha)
+  const y = iy(ship.body, alpha)
+  const w = ship.body.w
+  const h = ship.body.h
+
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(ship.tilt)
+
+  if (ship.thrusting) {
+    const flick = 1 + Math.sin(state.time * 60) * 0.25
+    ctx.fillStyle = '#ffb14d'
+    ctx.beginPath()
+    ctx.moveTo(-7, h / 2)
+    ctx.lineTo(7, h / 2)
+    ctx.lineTo(0, h / 2 + 16 * flick)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  // Hull
+  ctx.fillStyle = '#c8d2dd'
+  ctx.beginPath()
+  ctx.moveTo(-w / 2, h / 2)
+  ctx.lineTo(-w / 2 + 6, -h / 2)
+  ctx.lineTo(w / 2 - 6, -h / 2)
+  ctx.lineTo(w / 2, h / 2)
+  ctx.closePath()
+  ctx.fill()
+
+  // Cockpit
+  ctx.fillStyle = '#7fd4ff'
+  ctx.beginPath()
+  ctx.arc(0, -h / 2 + 6, 6, Math.PI, 0)
+  ctx.fill()
+
+  // Legs
+  ctx.strokeStyle = '#96a2b0'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-w / 2 + 4, h / 2 - 2)
+  ctx.lineTo(-w / 2 - 3, h / 2 + 4)
+  ctx.moveTo(w / 2 - 4, h / 2 - 2)
+  ctx.lineTo(w / 2 + 3, h / 2 + 4)
+  ctx.stroke()
+  ctx.lineWidth = 1
+
+  // Lateral thruster puffs
+  if (state.mode === 'flight' && ship.latDir !== 0) {
+    ctx.fillStyle = 'rgba(255,220,150,0.8)'
+    const px = -ship.latDir * (w / 2 + 4)
+    ctx.beginPath()
+    ctx.arc(px, 0, 4, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  ctx.restore()
+}
+
+function drawPod(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  const pod = state.pod
+  const x = ix(pod.body, alpha)
+  const y = iy(pod.body, alpha)
+  const r = TUNE.pod.r
+
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(pod.angle)
+
+  if (pod.thrusting) {
+    const flick = 1 + Math.sin(state.time * 70) * 0.3
+    ctx.fillStyle = '#ffc26b'
+    ctx.beginPath()
+    ctx.moveTo(-3, r)
+    ctx.lineTo(3, r)
+    ctx.lineTo(0, r + 10 * flick)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  ctx.fillStyle = '#e8eef4'
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#5fc7ff'
+  ctx.beginPath()
+  ctx.arc(0, -2, 3, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.restore()
+}
+
+function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
+  const hud = buildHud(state)
+  const { w: vw, h: vh } = TUNE.view
+
+  ctx.font = '11px monospace'
+  ctx.textBaseline = 'top'
+
+  drawBar(ctx, 14, 14, 150, 'HULL', hud.hull, hud.hull > 0.3 ? '#69d98c' : '#e86a5e')
+  drawBar(ctx, 14, 34, 150, 'FUEL', hud.fuel, hud.fuel > 0.25 ? '#5fc7ff' : '#e8b45e')
+
+  if (hud.prompt) {
+    ctx.fillStyle = 'rgba(230,238,246,0.85)'
+    ctx.textAlign = 'center'
+    ctx.fillText(hud.prompt, vw / 2, vh - 26)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.message) {
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#f4f7fa'
+    ctx.textAlign = 'center'
+    ctx.fillText(hud.message, vw / 2, 60)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.mode === 'dead') {
+    ctx.fillStyle = 'rgba(6,8,12,0.75)'
+    ctx.fillRect(0, 0, vw, vh)
+    ctx.textAlign = 'center'
+    ctx.font = '26px monospace'
+    ctx.fillStyle = '#e86a5e'
+    ctx.fillText('LOST', vw / 2, vh / 2 - 40)
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#c8d2dd'
+    ctx.fillText(hud.deathReason, vw / 2, vh / 2 - 4)
+    ctx.fillText('Press Enter to retry', vw / 2, vh / 2 + 24)
+    ctx.textAlign = 'left'
+  }
+}
+
+function drawBar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  label: string,
+  frac: number,
+  color: string,
+): void {
+  ctx.fillStyle = 'rgba(20,26,34,0.8)'
+  ctx.fillRect(x, y, w, 14)
+  ctx.fillStyle = color
+  ctx.fillRect(x + 2, y + 2, Math.max(0, (w - 4) * Math.min(1, frac)), 10)
+  ctx.fillStyle = '#0b0e13'
+  ctx.fillText(label, x + 6, y + 3)
+}

@@ -1,0 +1,220 @@
+// GameState and the per-tick mode machine. All game rules route through here;
+// rendering never mutates this.
+
+import { makeCamera, updateCamera, type Camera } from '../core/camera'
+import type { InputState } from '../core/input'
+import { classifyLanding } from '../physics/landing'
+import { solveRope } from '../physics/rope'
+import { PAD, groundCodeUnder } from '../physics/tiles'
+import { TUNE } from '../tune'
+import { roomAt, type Pad as WorldPad, type World } from '../world/room'
+import { makeItems, nearestItem, updateItems, type Item } from './objects'
+import { dockPoint, makeShip, updateShipFlight, type Ship } from './ship'
+import { launchPod, makePod, updatePodFlight, type Pod } from './pod'
+
+export type Mode = 'flight' | 'landed' | 'pod' | 'dead' | 'won'
+
+export interface GameState {
+  mode: Mode
+  ship: Ship
+  pod: Pod
+  items: Item[]
+  world: World
+  camera: Camera
+  currentRoomId: string
+  lastPadId: string | null
+  ropeTaut: boolean
+  ropeStrain: number
+  deathReason: string
+  message: string
+  messageTimer: number
+  time: number
+}
+
+function say(state: GameState, text: string, seconds = 2.5): void {
+  state.message = text
+  state.messageTimer = seconds
+}
+
+export function newGame(world: World, startPadId: string): GameState {
+  const pad = world.pads.find((p) => p.id === startPadId)
+  if (!pad) throw new Error(`no pad ${startPadId}`)
+  const ship = makeShip(pad.rect.x + pad.rect.w / 2, pad.rect.y - TUNE.ship.h / 2 - 0.1)
+
+  const state: GameState = {
+    mode: 'landed',
+    ship,
+    pod: makePod(),
+    items: makeItems(world),
+    world,
+    camera: makeCamera(),
+    currentRoomId: roomAt(world, ship.body.x, ship.body.y)?.id ?? world.rooms[0].id,
+    lastPadId: startPadId,
+    ropeTaut: false,
+    ropeStrain: 0,
+    deathReason: '',
+    message: '',
+    messageTimer: 0,
+    time: 0,
+  }
+  // Snap the camera to the ship instead of lerping in from (0,0).
+  const room = state.world.rooms.find((r) => r.id === state.currentRoomId)!
+  updateCamera(state.camera, ship.body.x, ship.body.y, room.rect, TUNE.view.w, TUNE.view.h, 10)
+  return state
+}
+
+function padUnderShip(state: GameState): WorldPad | undefined {
+  const b = state.ship.body
+  if (groundCodeUnder(state.world.map, b) !== PAD) return undefined
+  return state.world.pads.find(
+    (p) =>
+      b.x - b.w / 2 >= p.rect.x - 2 &&
+      b.x + b.w / 2 <= p.rect.x + p.rect.w + 2 &&
+      Math.abs(b.y + b.h / 2 - p.rect.y) < 4,
+  )
+}
+
+function die(state: GameState, reason: string): void {
+  state.mode = 'dead'
+  state.deathReason = reason
+}
+
+function updateFlight(state: GameState, input: InputState, dt: number): void {
+  const res = updateShipFlight(state.ship, input, state.world.map, dt)
+
+  if (res.wallImpact > TUNE.landing.softVx) {
+    state.ship.hull -= (res.wallImpact - TUNE.landing.softVx) * TUNE.ship.groundScrapeDamage
+  }
+
+  if (res.touchdown) {
+    const { vx, vy, tilt } = res.touchdown
+    const pad = padUnderShip(state)
+    if (pad) {
+      const landing = classifyLanding(vx, vy, tilt, TUNE.landing)
+      if (landing.kind === 'crash') {
+        die(state, 'The hull shattered on the pad.')
+        return
+      }
+      state.mode = 'landed'
+      state.lastPadId = pad.id
+      state.ship.tilt = 0
+      state.ship.latDir = 0
+      state.ship.thrusting = false
+      if (landing.kind === 'soft') {
+        state.ship.hull = TUNE.ship.hullMax
+        say(state, 'Touchdown. Hull repaired.')
+      } else {
+        state.ship.hull -= landing.damage
+        say(state, 'Hard landing. Set down gently to repair.')
+      }
+    } else if (vy > TUNE.landing.crashVy) {
+      die(state, 'The ship broke apart on the rocks.')
+      return
+    } else if (vy > TUNE.landing.softVy) {
+      state.ship.hull -= (vy - TUNE.landing.softVy) * TUNE.ship.groundScrapeDamage * 4
+      say(state, 'Rough ground. Find a pad.', 1.5)
+    }
+  }
+
+  if (state.ship.hull <= 0) die(state, 'Hull integrity lost.')
+}
+
+function updateLanded(state: GameState, input: InputState): void {
+  state.ship.thrusting = false
+  if (input.action) {
+    const p = dockPoint(state.ship)
+    launchPod(state.pod, p.x, p.y - TUNE.pod.r - 2)
+    state.mode = 'pod'
+    return
+  }
+  if (input.thrust) {
+    // Lift-off requires the pod docked — in 'landed' mode it always is.
+    state.ship.body.vy = -TUNE.ship.liftKick
+    state.ship.thrusting = true
+    state.mode = 'flight'
+  }
+}
+
+function updatePod(state: GameState, input: InputState, dt: number): void {
+  const pod = state.pod
+
+  if (input.action) {
+    if (pod.grappled) {
+      pod.grappled = null
+      say(state, 'Grapple released.', 1.2)
+    } else {
+      const item = nearestItem(state.items, pod.body.x, pod.body.y, TUNE.rope.grabRange)
+      if (item) {
+        pod.grappled = item.def.id
+        say(state, `Grappled: ${item.def.kind} (mass ${item.def.mass})`, 1.6)
+      }
+    }
+  }
+
+  const res = updatePodFlight(pod, input, state.world.map, dt)
+  if (res.impact > TUNE.pod.crashSpeed) {
+    die(state, 'The pod was smashed against the rock.')
+    return
+  }
+
+  state.ropeTaut = false
+  state.ropeStrain = 0
+  if (pod.grappled) {
+    const item = state.items.find((i) => i.def.id === pod.grappled)
+    if (item) {
+      const rope = solveRope(pod.body, item.body, TUNE.rope.length, TUNE.rope.stiffness)
+      state.ropeTaut = rope.taut
+      state.ropeStrain = rope.strain
+    }
+  }
+
+  if (pod.fuel <= 0 && !pod.thrusting && state.messageTimer <= 0) {
+    say(state, 'Fuel exhausted. Drift home.', 1.2)
+  }
+
+  const dock = dockPoint(state.ship)
+  const dockDist = Math.hypot(pod.body.x - dock.x, pod.body.y - dock.y)
+  if (!pod.dockArmed) {
+    if (dockDist > TUNE.pod.dockRange * 1.5) pod.dockArmed = true
+  } else if (dockDist < TUNE.pod.dockRange) {
+    pod.grappled = null
+    state.mode = 'landed'
+    say(state, 'Pod docked. Fuel topped up.', 1.6)
+  }
+}
+
+export function update(state: GameState, input: InputState, dt: number): GameState {
+  state.time += dt
+  if (state.messageTimer > 0) {
+    state.messageTimer -= dt
+    if (state.messageTimer <= 0) state.message = ''
+  }
+
+  switch (state.mode) {
+    case 'flight':
+      updateFlight(state, input, dt)
+      break
+    case 'landed':
+      updateLanded(state, input)
+      break
+    case 'pod':
+      updatePod(state, input, dt)
+      break
+    case 'dead':
+      if (input.confirm) return newGame(state.world, 'padA')
+      break
+    case 'won':
+      break
+  }
+
+  // Items exist in the world whatever the mode.
+  updateItems(state.items, state.world.map, dt)
+
+  const focus = state.mode === 'pod' ? state.pod.body : state.ship.body
+  const room = roomAt(state.world, focus.x, focus.y)
+  if (room) state.currentRoomId = room.id
+  const clamp = state.world.rooms.find((r) => r.id === state.currentRoomId)!.rect
+  updateCamera(state.camera, focus.x, focus.y, clamp, TUNE.view.w, TUNE.view.h, dt)
+
+  return state
+}

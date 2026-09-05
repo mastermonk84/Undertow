@@ -1,0 +1,53 @@
+// HUD view-model. No drawing here — render/draw.ts consumes this.
+
+import { TUNE } from '../tune'
+import { nearestItem } from './objects'
+import { dockPoint } from './ship'
+import type { GameState } from './state'
+
+export interface Hud {
+  hull: number // 0..1
+  fuel: number // 0..1
+  prompt: string
+  message: string
+  deathReason: string
+  mode: GameState['mode']
+}
+
+export function buildHud(state: GameState): Hud {
+  let prompt = ''
+  switch (state.mode) {
+    case 'landed':
+      prompt = 'E launch pod · hold W/↑ lift off'
+      break
+    case 'pod': {
+      if (state.pod.grappled) {
+        prompt = 'E release grapple · dock at the ship to deliver'
+      } else if (nearestItem(state.items, state.pod.body.x, state.pod.body.y, TUNE.rope.grabRange)) {
+        prompt = 'E grapple'
+      } else {
+        const dock = dockPoint(state.ship)
+        const d = Math.hypot(state.pod.body.x - dock.x, state.pod.body.y - dock.y)
+        if (d < 120) prompt = 'approach the ship to dock'
+      }
+      break
+    }
+    case 'flight':
+      prompt = 'land gently and level on a pad'
+      break
+    case 'dead':
+      prompt = 'Enter retry'
+      break
+    case 'won':
+      break
+  }
+
+  return {
+    hull: Math.max(0, state.ship.hull) / TUNE.ship.hullMax,
+    fuel: state.pod.fuel / TUNE.pod.fuelMax,
+    prompt,
+    message: state.message,
+    deathReason: state.deathReason,
+    mode: state.mode,
+  }
+}
