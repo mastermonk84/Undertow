@@ -48,6 +48,8 @@ export function buildHud(state: GameState): Hud {
       break
     case 'paused':
       break
+    case 'title':
+      break
   }
 
   const upgrades: string[] = []

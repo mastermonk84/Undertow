@@ -134,7 +134,15 @@ Stored in localStorage, versioned for migration.
 Each milestone ends with a report: what to test by hand, what I'm unsure about,
 what I'd cut. No milestone starts without explicit approval.
 
-### Milestone 1 — feel sandbox + deploy *(not started)*
+> **Status:** milestones 1–7 are implemented (all-milestone approval given
+> 2026-09-05); 46 automated tests cover physics, world seams, and mechanisms.
+> What remains is human playtesting and feel tuning in `src/tune.ts`, and the
+> actual Vercel hookup (the build is deploy-ready; connecting the repo to a
+> Vercel account is a user action). One design change during M7: delivering
+> the relic is now a mid-game story beat; the ending is delivering the core
+> after the Warden falls.
+
+### Milestone 1 — feel sandbox + deploy *(done)*
 
 Only the two feel-critical systems, in front of the designer as fast as
 possible: ship flight/landing and pod+rope towing.

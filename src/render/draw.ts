@@ -49,6 +49,7 @@ export function draw(
   for (const item of state.items) drawItem(ctx, item, alpha)
   drawRope(ctx, state, alpha)
   drawShots(ctx, state, alpha)
+  drawBoss(ctx, state, alpha)
   particles?.draw(ctx)
   drawShip(ctx, state, alpha)
   if (state.mode === 'pod') drawPod(ctx, state, alpha)
@@ -191,6 +192,45 @@ function drawShots(ctx: CanvasRenderingContext2D, state: GameState, alpha: numbe
   }
 }
 
+function drawBoss(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  const boss = state.boss
+  if (boss.dead) return
+  const x = boss.px + (boss.x - boss.px) * alpha
+  const y = boss.py + (boss.y - boss.py) * alpha
+  const r = TUNE.boss.r
+
+  // Bulk: a dark knot with a slow-breathing outline.
+  const pulse = 1 + Math.sin(state.time * 2.2) * 0.06
+  ctx.fillStyle = boss.flash > 0 ? '#f4f7fa' : '#1a1420'
+  ctx.beginPath()
+  ctx.arc(x, y, r * pulse, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = boss.flash > 0 ? '#ffffff' : '#5e2c66'
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.lineWidth = 1
+
+  // The eye tracks the pod.
+  const pod = state.pod.body
+  const dx = pod.x - x
+  const dy = pod.y - y
+  const d = Math.hypot(dx, dy) || 1
+  ctx.fillStyle = '#ff5e4d'
+  ctx.beginPath()
+  ctx.arc(x + (dx / d) * 6, y + (dy / d) * 6, 5, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Bolts.
+  ctx.fillStyle = '#ff6a5e'
+  for (const bolt of state.bossShots) {
+    const bx = bolt.px + (bolt.x - bolt.px) * alpha
+    const by = bolt.py + (bolt.y - bolt.py) * alpha
+    ctx.beginPath()
+    ctx.arc(bx, by, 3.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
 function drawShip(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
   const ship = state.ship
   const x = ix(ship.body, alpha)
@@ -295,7 +335,7 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
   drawBar(ctx, 14, 14, 150, 'HULL', hud.hull, hud.hull > 0.3 ? '#69d98c' : '#e86a5e')
   drawBar(ctx, 14, 34, 150, 'FUEL', hud.fuel, hud.fuel > 0.25 ? '#5fc7ff' : '#e8b45e')
 
-  if (hud.prompt) {
+  if (hud.prompt && hud.mode !== 'won' && hud.mode !== 'title') {
     ctx.fillStyle = 'rgba(230,238,246,0.85)'
     ctx.textAlign = 'center'
     ctx.fillText(hud.prompt, vw / 2, vh - 26)
@@ -318,16 +358,48 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
   }
 
   if (hud.mode === 'won') {
-    ctx.fillStyle = 'rgba(6,10,8,0.75)'
+    ctx.fillStyle = 'rgba(4,5,8,0.88)'
     ctx.fillRect(0, 0, vw, vh)
     ctx.textAlign = 'center'
     ctx.font = '26px monospace'
-    ctx.fillStyle = '#ffd75e'
-    ctx.fillText('RELIC SECURED', vw / 2, vh / 2 - 40)
+    ctx.fillStyle = '#ff8659'
+    ctx.fillText('THE FINAL TOW', vw / 2, vh / 2 - 80)
     ctx.font = '14px monospace'
     ctx.fillStyle = '#c8d2dd'
-    ctx.fillText('The first piece of the salvage. Something below stirs.', vw / 2, vh / 2 - 4)
-    ctx.fillText('Press Enter to play again', vw / 2, vh / 2 + 24)
+    const lines = [
+      'The core seats itself in the hold, and the ship comes alive.',
+      'Behind you, every pad goes dark. The caves stop breathing.',
+      'You were told this was a rescue.',
+      'Rescues do not leave a world hollow.',
+      '',
+      'The undertow lets go. It has nothing left to hold.',
+    ]
+    lines.forEach((line, i) => ctx.fillText(line, vw / 2, vh / 2 - 36 + i * 22))
+    ctx.fillStyle = 'rgba(200,210,221,0.7)'
+    ctx.fillText('Press Enter', vw / 2, vh / 2 + 108)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.mode === 'title') {
+    ctx.fillStyle = 'rgba(5,6,10,0.82)'
+    ctx.fillRect(0, 0, vw, vh)
+    ctx.textAlign = 'center'
+    ctx.font = 'bold 54px monospace'
+    ctx.fillStyle = '#e6eef6'
+    ctx.fillText('UNDERTOW', vw / 2, vh / 2 - 110)
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#7fa8c8'
+    ctx.fillText('Bring it all home.', vw / 2, vh / 2 - 66)
+    ctx.fillStyle = '#c8d2dd'
+    const help = [
+      'SHIP    ←/→ tilt · ↑/W/Space thrust · land soft and level on pads',
+      'POD     E launch from a landed ship · ←/→ rotate · ↑ thrust',
+      'GRAPPLE E near cargo · tow it home · dock to deliver',
+      'C fire (with cutter) · Esc pause · gamepad supported',
+    ]
+    help.forEach((line, i) => ctx.fillText(line, vw / 2, vh / 2 - 16 + i * 22))
+    ctx.fillStyle = 'rgba(230,238,246,0.85)'
+    ctx.fillText('Press Enter to descend', vw / 2, vh / 2 + 96)
     ctx.textAlign = 'left'
   }
 

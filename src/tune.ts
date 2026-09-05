@@ -60,6 +60,14 @@ export const TUNE = {
     ropeLenMul: 1.4, // grapple winch rope length multiplier
   },
 
+  boss: {
+    hp: 8,
+    r: 20, // collision radius
+    speed: 55, // homing px/s
+    shotSpeed: 140,
+    fireEvery: 1.7, // s
+  },
+
   landing: {
     softVy: 60, // max descent px/s for a clean touchdown
     softVx: 45, // max drift px/s

@@ -26,6 +26,7 @@ const audio = new GameAudio()
 const particles = new Particles()
 const world = buildWorld(rooms, TUNE.tileSize)
 let state = startGame(world)
+state.mode = 'title'
 
 // Audio contexts must start from a user gesture.
 window.addEventListener('keydown', () => audio.ensure(), { once: true })

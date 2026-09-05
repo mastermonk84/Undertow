@@ -22,7 +22,7 @@ import { makeItems, nearestItem, updateItems, updatePlatesAndDoors, type Item } 
 import { dockPoint, makeShip, updateShipFlight, type Ship } from './ship'
 import { launchPod, makePod, updatePodFlight, type Pod } from './pod'
 
-export type Mode = 'flight' | 'landed' | 'pod' | 'dead' | 'won' | 'paused'
+export type Mode = 'title' | 'flight' | 'landed' | 'pod' | 'dead' | 'won' | 'paused'
 
 export interface Upgrades {
   engine: boolean
@@ -39,6 +39,21 @@ export interface Shot {
   vx: number
   vy: number
   ttl: number
+}
+
+// The Warden: guardian of the core hatch in The Root.
+export interface Boss {
+  x: number
+  y: number
+  px: number
+  py: number
+  vx: number
+  vy: number
+  hp: number
+  awake: boolean
+  dead: boolean
+  fireTimer: number
+  flash: number
 }
 
 // Feel events for audio/particles, drained by main each tick.
@@ -62,6 +77,8 @@ export interface GameState {
   ropeTaut: boolean
   ropeStrain: number
   shots: Shot[]
+  bossShots: Shot[]
+  boss: Boss
   events: GameEvent[]
   shake: number
   deathReason: string
@@ -115,6 +132,20 @@ export function newGame(world: World, startPadId: string, save?: SaveData): Game
     ropeTaut: false,
     ropeStrain: 0,
     shots: [],
+    bossShots: [],
+    boss: {
+      x: 72.5 * TUNE.tileSize,
+      y: 78 * TUNE.tileSize,
+      px: 72.5 * TUNE.tileSize,
+      py: 78 * TUNE.tileSize,
+      vx: 0,
+      vy: 0,
+      hp: TUNE.boss.hp,
+      awake: false,
+      dead: save?.bossDead ?? false,
+      fireTimer: 0,
+      flash: 0,
+    },
     events: [],
     shake: 0,
     deathReason: '',
@@ -391,7 +422,7 @@ function deliver(state: GameState, item: Item): void {
       break
     case 'relic':
       item.delivered = true
-      state.mode = 'won'
+      say(state, 'The relic hums in the hold. It is pointing down.', 4)
       break
     case 'core':
       item.delivered = true
@@ -416,6 +447,26 @@ function updateShots(state: GameState, dt: number): void {
     shot.x += shot.vx * dt
     shot.y += shot.vy * dt
     shot.ttl -= dt
+    const boss = state.boss
+    if (
+      boss.awake &&
+      !boss.dead &&
+      Math.hypot(shot.x - boss.x, shot.y - boss.y) < TUNE.boss.r + 3
+    ) {
+      shot.ttl = 0
+      boss.hp -= 1
+      boss.flash = 0.15
+      emit(state, 'impact', boss.x, boss.y, 0.8)
+      if (boss.hp <= 0) {
+        boss.dead = true
+        state.bossDead = true
+        emit(state, 'boom', boss.x, boss.y, 1.3)
+        kick(state, 12)
+        say(state, 'The Warden falls. Below, the hatch grinds open.', 3.5)
+        saveGame(state)
+      }
+      continue
+    }
     const tx = Math.floor(shot.x / s)
     const ty = Math.floor(shot.y / s)
     const cell = cellAt(map, tx, ty)
@@ -444,6 +495,94 @@ function updateShots(state: GameState, dt: number): void {
   state.shots = state.shots.filter((shot) => shot.ttl > 0)
 }
 
+function updateBoss(state: GameState, dt: number): void {
+  const boss = state.boss
+  boss.px = boss.x
+  boss.py = boss.y
+  boss.flash = Math.max(0, boss.flash - dt)
+  if (boss.dead) return
+
+  const rootRoom = state.world.rooms.find((r) => r.id === 'r7')!
+  const pod = state.pod.body
+  const podInRoot =
+    state.mode === 'pod' &&
+    pod.x >= rootRoom.rect.x &&
+    pod.x < rootRoom.rect.x + rootRoom.rect.w &&
+    pod.y >= rootRoom.rect.y &&
+    pod.y < rootRoom.rect.y + rootRoom.rect.h
+
+  if (!boss.awake) {
+    if (podInRoot) {
+      boss.awake = true
+      say(state, 'Something vast unfolds from the dark.', 2.5)
+      emit(state, 'door', boss.x, boss.y, 1)
+      kick(state, 5)
+    }
+    return
+  }
+
+  // Drift toward the pod with a slow bob; the Root is its cage.
+  if (podInRoot) {
+    const dx = pod.x - boss.x
+    const dy = pod.y - boss.y
+    const d = Math.hypot(dx, dy) || 1
+    boss.vx = (dx / d) * TUNE.boss.speed
+    boss.vy = (dy / d) * TUNE.boss.speed + Math.sin(state.time * 2.2) * 18
+  } else {
+    boss.vx *= 0.95
+    boss.vy = Math.sin(state.time * 2.2) * 18
+  }
+  boss.x += boss.vx * dt
+  boss.y += boss.vy * dt
+  boss.x = Math.max(rootRoom.rect.x + 60, Math.min(boss.x, rootRoom.rect.x + rootRoom.rect.w - 60))
+  boss.y = Math.max(rootRoom.rect.y + 50, Math.min(boss.y, rootRoom.rect.y + rootRoom.rect.h - 80))
+
+  // Fire slow bolts at the pod.
+  boss.fireTimer -= dt
+  if (podInRoot && boss.fireTimer <= 0) {
+    boss.fireTimer = TUNE.boss.fireEvery
+    const dx = pod.x - boss.x
+    const dy = pod.y - boss.y
+    const d = Math.hypot(dx, dy) || 1
+    state.bossShots.push({
+      x: boss.x,
+      y: boss.y,
+      px: boss.x,
+      py: boss.y,
+      vx: (dx / d) * TUNE.boss.shotSpeed,
+      vy: (dy / d) * TUNE.boss.shotSpeed,
+      ttl: 4,
+    })
+    emit(state, 'shot', boss.x, boss.y, 0.4)
+  }
+
+  // Boss contact and bolts kill the pod.
+  if (podInRoot && Math.hypot(pod.x - boss.x, pod.y - boss.y) < TUNE.boss.r + TUNE.pod.r) {
+    die(state, 'The Warden folded the pod into itself.', pod.x, pod.y)
+    return
+  }
+  const map = state.world.map
+  for (const bolt of state.bossShots) {
+    bolt.px = bolt.x
+    bolt.py = bolt.y
+    bolt.x += bolt.vx * dt
+    bolt.y += bolt.vy * dt
+    bolt.ttl -= dt
+    if (cellAt(map, Math.floor(bolt.x / map.size), Math.floor(bolt.y / map.size)) !== AIR) {
+      bolt.ttl = 0
+      continue
+    }
+    if (
+      state.mode === 'pod' &&
+      Math.hypot(bolt.x - pod.x, bolt.y - pod.y) < TUNE.pod.r + 4
+    ) {
+      die(state, "The Warden's bolt found the pod.", pod.x, pod.y)
+      return
+    }
+  }
+  state.bossShots = state.bossShots.filter((b) => b.ttl > 0)
+}
+
 export function update(state: GameState, input: InputState, dt: number): GameState {
   state.time += dt
   state.events.length = 0
@@ -463,6 +602,9 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
   }
 
   switch (state.mode) {
+    case 'title':
+      if (input.confirm || input.thrust || input.action) state.mode = 'landed'
+      return state
     case 'flight':
       updateFlight(state, input, dt)
       break
@@ -496,11 +638,12 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
 
   // Items, plates, doors, and shots exist in the world whatever the mode.
   updateItems(state.items, state.world.map, dt)
-  for (const door of updatePlatesAndDoors(state.world, state.items)) {
+  for (const door of updatePlatesAndDoors(state.world, state.items, state.bossDead)) {
     const t = door.tiles[0]
     emit(state, 'door', (t.tx + 0.5) * 16, (t.ty + 0.5) * 16, 0.8)
   }
   updateShots(state, dt)
+  updateBoss(state, dt)
 
   const focus = state.mode === 'pod' ? state.pod.body : state.ship.body
   const room = roomAt(state.world, focus.x, focus.y)

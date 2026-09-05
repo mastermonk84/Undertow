@@ -32,7 +32,7 @@ export function updateItems(items: Item[], map: TileMap, dt: number): void {
  * Plates press while any undelivered item rests on them; doors track their
  * plate. Returns the doors that toggled this tick (for audio/FX).
  */
-export function updatePlatesAndDoors(world: World, items: Item[]): Door[] {
+export function updatePlatesAndDoors(world: World, items: Item[], bossDead = false): Door[] {
   for (const plate of world.plates) {
     plate.pressed = items.some((item) => {
       if (item.delivered) return false
@@ -50,7 +50,7 @@ export function updatePlatesAndDoors(world: World, items: Item[]): Door[] {
   const toggled: Door[] = []
   for (const door of world.doors) {
     const plate = world.plates.find((p) => p.id === door.openBy)
-    const shouldOpen = plate?.pressed ?? door.open
+    const shouldOpen = door.openBy === 'boss1' ? bossDead : (plate?.pressed ?? door.open)
     if (shouldOpen !== door.open) {
       door.open = shouldOpen
       for (const t of door.tiles) {

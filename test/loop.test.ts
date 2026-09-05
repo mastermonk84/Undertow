@@ -78,7 +78,7 @@ describe('full loop mechanisms', () => {
     expect(engine.delivered).toBe(true)
   })
 
-  it('delivering the relic wins the game', () => {
+  it('delivering the relic is a story beat, not the ending', () => {
     let s = freshGame()
     s = tick(s, 1, { action: true })
     const relic = s.items.find((i) => i.def.kind === 'relic')!
@@ -89,6 +89,22 @@ describe('full loop mechanisms', () => {
     s.pod.body.vy = 0
     relic.body.x = s.ship.body.x - 30
     relic.body.y = s.ship.body.y - 10
+    s = tick(s, 2)
+    expect(s.mode).toBe('landed')
+    expect(relic.delivered).toBe(true)
+  })
+
+  it('delivering the core ends the game', () => {
+    let s = freshGame()
+    s = tick(s, 1, { action: true })
+    const core = s.items.find((i) => i.def.kind === 'core')!
+    s.pod.grappled = core.def.id
+    s.pod.dockArmed = true
+    s.pod.body.x = s.ship.body.x
+    s.pod.body.y = s.ship.body.y - 20
+    s.pod.body.vy = 0
+    core.body.x = s.ship.body.x - 30
+    core.body.y = s.ship.body.y - 10
     s = tick(s, 2)
     expect(s.mode).toBe('won')
   })
