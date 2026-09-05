@@ -39,6 +39,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, alpha: num
   drawPlates(ctx, state)
   for (const item of state.items) drawItem(ctx, item, alpha)
   drawRope(ctx, state, alpha)
+  drawShots(ctx, state, alpha)
   drawShip(ctx, state, alpha)
   if (state.mode === 'pod') drawPod(ctx, state, alpha)
 
@@ -137,16 +138,38 @@ function drawItem(ctx: CanvasRenderingContext2D, item: Item, alpha: number): voi
 }
 
 function drawRope(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
-  if (state.mode !== 'pod' || !state.pod.grappled) return
-  const item = state.items.find((i) => i.def.id === state.pod.grappled)
-  if (!item) return
+  if (state.mode !== 'pod') return
+  let tx: number
+  let ty: number
+  if (state.pod.grappled) {
+    const item = state.items.find((i) => i.def.id === state.pod.grappled)
+    if (!item) return
+    tx = ix(item.body, alpha)
+    ty = iy(item.body, alpha)
+  } else if (state.pod.wallAnchor) {
+    tx = state.pod.wallAnchor.x
+    ty = state.pod.wallAnchor.y
+  } else {
+    return
+  }
   ctx.strokeStyle = state.ropeTaut ? '#d8e0ea' : 'rgba(216,224,234,0.45)'
   ctx.lineWidth = state.ropeTaut ? 1.5 : 1
   ctx.beginPath()
   ctx.moveTo(ix(state.pod.body, alpha), iy(state.pod.body, alpha))
-  ctx.lineTo(ix(item.body, alpha), iy(item.body, alpha))
+  ctx.lineTo(tx, ty)
   ctx.stroke()
   ctx.lineWidth = 1
+}
+
+function drawShots(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+  ctx.fillStyle = '#ffe08a'
+  for (const shot of state.shots) {
+    const x = shot.px + (shot.x - shot.px) * alpha
+    const y = shot.py + (shot.y - shot.py) * alpha
+    ctx.beginPath()
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
 }
 
 function drawShip(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {

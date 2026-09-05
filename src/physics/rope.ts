@@ -42,3 +42,36 @@ export function solveRope(a: Body, b: Body, length: number, stiffness = 1): Rope
 
   return { taut: true, strain }
 }
+
+/**
+ * Rope to a fixed anchor point (wall grapple). Removes only the separating
+ * radial velocity, so tangential swing speed is preserved — the slingshot.
+ */
+export function solveRopeAnchor(
+  b: Body,
+  ax: number,
+  ay: number,
+  length: number,
+  stiffness = 1,
+): RopeResult {
+  const dx = b.x - ax
+  const dy = b.y - ay
+  const d = Math.hypot(dx, dy)
+  if (d <= length || d === 0) return { taut: false, strain: 0 }
+
+  const nx = dx / d
+  const ny = dy / d
+  const vrel = b.vx * nx + b.vy * ny
+  let strain = 0
+  if (vrel > 0) {
+    b.vx -= vrel * nx * stiffness
+    b.vy -= vrel * ny * stiffness
+    strain = vrel
+  }
+
+  const over = (d - length) * stiffness
+  b.x -= nx * over
+  b.y -= ny * over
+
+  return { taut: true, strain }
+}

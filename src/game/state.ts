@@ -4,8 +4,17 @@
 import { makeCamera, updateCamera, type Camera } from '../core/camera'
 import type { InputState } from '../core/input'
 import { classifyLanding } from '../physics/landing'
-import { solveRope } from '../physics/rope'
-import { AIR, BARRIER, DOOR, PAD, groundCodeUnder, setCell } from '../physics/tiles'
+import { solveRope, solveRopeAnchor } from '../physics/rope'
+import {
+  AIR,
+  BARRIER,
+  DOOR,
+  PAD,
+  cellAt,
+  groundCodeUnder,
+  nearestSolidCell,
+  setCell,
+} from '../physics/tiles'
 import { TUNE } from '../tune'
 import { roomAt, type Pad as WorldPad, type World } from '../world/room'
 import { clearSave, readSave, writeSave, type SaveData } from '../world/save'
@@ -22,6 +31,16 @@ export interface Upgrades {
   weapon: boolean
 }
 
+export interface Shot {
+  x: number
+  y: number
+  px: number
+  py: number
+  vx: number
+  vy: number
+  ttl: number
+}
+
 export interface GameState {
   upgrades: Upgrades
   mode: Mode
@@ -34,6 +53,7 @@ export interface GameState {
   lastPadId: string | null
   ropeTaut: boolean
   ropeStrain: number
+  shots: Shot[]
   deathReason: string
   deadCooldown: number
   pausedFrom: Mode
@@ -76,6 +96,7 @@ export function newGame(world: World, startPadId: string, save?: SaveData): Game
     lastPadId: startPadId,
     ropeTaut: false,
     ropeStrain: 0,
+    shots: [],
     deathReason: '',
     deadCooldown: 0,
     pausedFrom: 'landed',
@@ -156,6 +177,10 @@ export function ropeLength(state: GameState): number {
   return TUNE.rope.length * (state.upgrades.grapple ? TUNE.upgrades.ropeLenMul : 1)
 }
 
+export function ropeStiffness(state: GameState): number {
+  return state.upgrades.grapple ? TUNE.rope.winchStiffness : TUNE.rope.stiffness
+}
+
 function updateFlight(state: GameState, input: InputState, dt: number): void {
   const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
   const res = updateShipFlight(state.ship, input, state.world.map, dt, thrustMul)
@@ -218,17 +243,43 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   const pod = state.pod
 
   if (input.action) {
-    if (pod.grappled) {
+    if (pod.grappled || pod.wallAnchor) {
       pod.grappled = null
+      pod.wallAnchor = null
       say(state, 'Grapple released.', 1.2)
     } else {
       const item = nearestItem(state.items, pod.body.x, pod.body.y, TUNE.rope.grabRange)
       if (item) {
         pod.grappled = item.def.id
         say(state, `Grappled: ${item.def.kind} (mass ${item.def.mass})`, 1.6)
+      } else if (state.upgrades.grapple) {
+        const anchor = nearestSolidCell(
+          state.world.map,
+          pod.body.x,
+          pod.body.y,
+          TUNE.rope.grabRange,
+        )
+        if (anchor) {
+          pod.wallAnchor = anchor
+          say(state, 'Anchored. Swing.', 1.2)
+        }
       }
     }
   }
+
+  if (input.fire && state.upgrades.weapon && pod.fireCooldown <= 0) {
+    pod.fireCooldown = TUNE.weapon.cooldown
+    state.shots.push({
+      x: pod.body.x + Math.sin(pod.angle) * (TUNE.pod.r + 3),
+      y: pod.body.y - Math.cos(pod.angle) * (TUNE.pod.r + 3),
+      px: pod.body.x,
+      py: pod.body.y,
+      vx: pod.body.vx + Math.sin(pod.angle) * TUNE.weapon.shotSpeed,
+      vy: pod.body.vy - Math.cos(pod.angle) * TUNE.weapon.shotSpeed,
+      ttl: TUNE.weapon.ttl,
+    })
+  }
+  pod.fireCooldown -= dt
 
   const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
   const res = updatePodFlight(pod, input, state.world.map, dt, thrustMul)
@@ -242,10 +293,20 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   if (pod.grappled) {
     const item = state.items.find((i) => i.def.id === pod.grappled)
     if (item) {
-      const rope = solveRope(pod.body, item.body, ropeLength(state), TUNE.rope.stiffness)
+      const rope = solveRope(pod.body, item.body, ropeLength(state), ropeStiffness(state))
       state.ropeTaut = rope.taut
       state.ropeStrain = rope.strain
     }
+  } else if (pod.wallAnchor) {
+    const rope = solveRopeAnchor(
+      pod.body,
+      pod.wallAnchor.x,
+      pod.wallAnchor.y,
+      ropeLength(state),
+      ropeStiffness(state),
+    )
+    state.ropeTaut = rope.taut
+    state.ropeStrain = rope.strain
   }
 
   if (pod.fuel <= 0 && !pod.thrusting && state.messageTimer <= 0) {
@@ -307,6 +368,41 @@ function deliver(state: GameState, item: Item): void {
   if (item.delivered) saveGame(state)
 }
 
+function updateShots(state: GameState, dt: number): void {
+  const map = state.world.map
+  const s = map.size
+  for (const shot of state.shots) {
+    shot.px = shot.x
+    shot.py = shot.y
+    shot.x += shot.vx * dt
+    shot.y += shot.vy * dt
+    shot.ttl -= dt
+    const tx = Math.floor(shot.x / s)
+    const ty = Math.floor(shot.y / s)
+    const cell = cellAt(map, tx, ty)
+    if (cell === AIR) continue
+    shot.ttl = 0
+    if (cell === BARRIER) {
+      // Blast: clear barrier cells around the impact and remember them.
+      const r = Math.ceil(TUNE.weapon.blastRadius / s)
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const bx = tx + dx
+          const by = ty + dy
+          const cx = (bx + 0.5) * s
+          const cy = (by + 0.5) * s
+          if (Math.hypot(cx - shot.x, cy - shot.y) > TUNE.weapon.blastRadius) continue
+          if (cellAt(map, bx, by) !== BARRIER) continue
+          setCell(map, bx, by, AIR)
+          state.barriersCleared.add(`${bx},${by}`)
+        }
+      }
+      say(state, 'The rock crumbles.', 1.0)
+    }
+  }
+  state.shots = state.shots.filter((shot) => shot.ttl > 0)
+}
+
 export function update(state: GameState, input: InputState, dt: number): GameState {
   state.time += dt
   if (state.messageTimer > 0) {
@@ -355,9 +451,10 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
       return state
   }
 
-  // Items, plates, and doors exist in the world whatever the mode.
+  // Items, plates, doors, and shots exist in the world whatever the mode.
   updateItems(state.items, state.world.map, dt)
   updatePlatesAndDoors(state.world, state.items)
+  updateShots(state, dt)
 
   const focus = state.mode === 'pod' ? state.pod.body : state.ship.body
   const room = roomAt(state.world, focus.x, focus.y)

@@ -38,8 +38,16 @@ export const TUNE = {
 
   rope: {
     length: 96,
-    grabRange: 38, // px from pod centre to item centre
-    stiffness: 1.0,
+    grabRange: 38, // px from pod centre to item centre (or wall, with the winch)
+    stiffness: 0.6, // base rope is stretchy; the winch upgrade makes it crisp
+    winchStiffness: 1.0,
+  },
+
+  weapon: {
+    shotSpeed: 430,
+    cooldown: 0.22, // s between shots
+    ttl: 1.1, // s shot lifetime
+    blastRadius: 22, // px — barrier cells cleared around an impact
   },
 
   delivery: {

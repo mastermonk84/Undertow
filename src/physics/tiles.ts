@@ -96,6 +96,35 @@ export function moveBody(b: Body, map: TileMap, dt: number): MoveResult {
   return res
 }
 
+/** Nearest solid cell centre within range of a point, or null. */
+export function nearestSolidCell(
+  map: TileMap,
+  x: number,
+  y: number,
+  range: number,
+): { x: number; y: number } | null {
+  const s = map.size
+  const t0x = Math.floor((x - range) / s)
+  const t1x = Math.floor((x + range) / s)
+  const t0y = Math.floor((y - range) / s)
+  const t1y = Math.floor((y + range) / s)
+  let best: { x: number; y: number } | null = null
+  let bestD = range
+  for (let ty = t0y; ty <= t1y; ty++) {
+    for (let tx = t0x; tx <= t1x; tx++) {
+      if (cellAt(map, tx, ty) === AIR) continue
+      const cx = (tx + 0.5) * s
+      const cy = (ty + 0.5) * s
+      const d = Math.hypot(cx - x, cy - y)
+      if (d < bestD) {
+        bestD = d
+        best = { x: cx, y: cy }
+      }
+    }
+  }
+  return best
+}
+
 /** The dominant cell code under a body's feet (for pad detection). */
 export function groundCodeUnder(map: TileMap, b: Body): number {
   const s = map.size

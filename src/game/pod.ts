@@ -11,6 +11,8 @@ export interface Pod {
   angle: number // 0 = pointing up, positive clockwise
   fuel: number
   grappled: string | null // item id
+  wallAnchor: { x: number; y: number } | null // winch wall-grapple point
+  fireCooldown: number
   thrusting: boolean
   dockArmed: boolean // docking only re-arms once the pod has left the dock radius
 }
@@ -22,6 +24,8 @@ export function makePod(): Pod {
     angle: 0,
     fuel: TUNE.pod.fuelMax,
     grappled: null,
+    wallAnchor: null,
+    fireCooldown: 0,
     thrusting: false,
     dockArmed: false,
   }
@@ -37,6 +41,8 @@ export function launchPod(pod: Pod, x: number, y: number, maxFuel: number): void
   pod.angle = 0
   pod.fuel = maxFuel
   pod.grappled = null
+  pod.wallAnchor = null
+  pod.fireCooldown = 0
   pod.dockArmed = false
 }
 
