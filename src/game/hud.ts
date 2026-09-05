@@ -3,7 +3,7 @@
 import { TUNE } from '../tune'
 import { nearestItem } from './objects'
 import { dockPoint } from './ship'
-import type { GameState } from './state'
+import { maxFuel, type GameState } from './state'
 
 export interface Hud {
   hull: number // 0..1
@@ -53,7 +53,7 @@ export function buildHud(state: GameState): Hud {
   return {
     upgrades,
     hull: Math.max(0, state.ship.hull) / TUNE.ship.hullMax,
-    fuel: state.pod.fuel / TUNE.pod.fuelMax,
+    fuel: state.pod.fuel / maxFuel(state),
     prompt,
     message: state.message,
     deathReason: state.deathReason,

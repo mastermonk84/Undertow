@@ -4,7 +4,7 @@ import { update, newGame } from './game/state'
 import { draw } from './render/draw'
 import { TUNE } from './tune'
 import { buildWorld } from './world/room'
-import { sandbox } from './world/rooms/sandbox'
+import { rooms } from './world/rooms/world'
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
 canvas.width = TUNE.view.w
@@ -20,7 +20,7 @@ fit()
 window.addEventListener('resize', fit)
 
 const input = new Input(window)
-const world = buildWorld([sandbox], TUNE.tileSize)
+const world = buildWorld(rooms, TUNE.tileSize)
 let state = newGame(world, 'padA')
 
 startLoop(

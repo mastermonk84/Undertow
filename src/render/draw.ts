@@ -104,6 +104,7 @@ const ITEM_COLORS: Record<string, string> = {
   grapple: '#c78ef0',
   weapon: '#f08e8e',
   relic: '#ffd75e',
+  core: '#ff8659',
 }
 
 function drawItem(ctx: CanvasRenderingContext2D, item: Item, alpha: number): void {

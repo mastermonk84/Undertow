@@ -95,6 +95,14 @@ function die(state: GameState, reason: string): void {
   state.deathReason = reason
 }
 
+export function maxFuel(state: GameState): number {
+  return TUNE.pod.fuelMax * (state.upgrades.fueltank ? TUNE.upgrades.fuelMul : 1)
+}
+
+export function ropeLength(state: GameState): number {
+  return TUNE.rope.length * (state.upgrades.grapple ? TUNE.upgrades.ropeLenMul : 1)
+}
+
 function updateFlight(state: GameState, input: InputState, dt: number): void {
   const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
   const res = updateShipFlight(state.ship, input, state.world.map, dt, thrustMul)
@@ -140,7 +148,7 @@ function updateLanded(state: GameState, input: InputState): void {
   state.ship.thrusting = false
   if (input.action) {
     const p = dockPoint(state.ship)
-    launchPod(state.pod, p.x, p.y - TUNE.pod.r - 2)
+    launchPod(state.pod, p.x, p.y - TUNE.pod.r - 2, maxFuel(state))
     state.mode = 'pod'
     return
   }
@@ -168,7 +176,8 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
     }
   }
 
-  const res = updatePodFlight(pod, input, state.world.map, dt)
+  const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
+  const res = updatePodFlight(pod, input, state.world.map, dt, thrustMul)
   if (res.impact > TUNE.pod.crashSpeed) {
     die(state, 'The pod was smashed against the rock.')
     return
@@ -179,7 +188,7 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   if (pod.grappled) {
     const item = state.items.find((i) => i.def.id === pod.grappled)
     if (item) {
-      const rope = solveRope(pod.body, item.body, TUNE.rope.length, TUNE.rope.stiffness)
+      const rope = solveRope(pod.body, item.body, ropeLength(state), TUNE.rope.stiffness)
       state.ropeTaut = rope.taut
       state.ropeStrain = rope.strain
     }
@@ -196,6 +205,7 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   } else if (dockDist < TUNE.pod.dockRange) {
     const towed = pod.grappled ? state.items.find((i) => i.def.id === pod.grappled) : undefined
     pod.grappled = null
+    pod.fuel = maxFuel(state)
     state.mode = 'landed'
     say(state, 'Pod docked. Fuel topped up.', 1.6)
     if (towed) deliver(state, towed)
@@ -229,6 +239,10 @@ function deliver(state: GameState, item: Item): void {
       say(state, 'Mining cutter mounted on the pod.', 3)
       break
     case 'relic':
+      item.delivered = true
+      state.mode = 'won'
+      break
+    case 'core':
       item.delivered = true
       state.mode = 'won'
       break
@@ -269,7 +283,10 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
 
   const focus = state.mode === 'pod' ? state.pod.body : state.ship.body
   const room = roomAt(state.world, focus.x, focus.y)
-  if (room) state.currentRoomId = room.id
+  if (room && room.id !== state.currentRoomId) {
+    state.currentRoomId = room.id
+    say(state, `— ${room.name} —`, 1.8)
+  }
   const clamp = state.world.rooms.find((r) => r.id === state.currentRoomId)!.rect
   updateCamera(state.camera, focus.x, focus.y, clamp, TUNE.view.w, TUNE.view.h, dt)
 

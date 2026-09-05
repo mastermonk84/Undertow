@@ -27,7 +27,7 @@ export function makePod(): Pod {
   }
 }
 
-export function launchPod(pod: Pod, x: number, y: number): void {
+export function launchPod(pod: Pod, x: number, y: number, maxFuel: number): void {
   pod.body.x = x
   pod.body.y = y
   pod.body.px = x
@@ -35,7 +35,7 @@ export function launchPod(pod: Pod, x: number, y: number): void {
   pod.body.vx = 0
   pod.body.vy = -50
   pod.angle = 0
-  pod.fuel = TUNE.pod.fuelMax
+  pod.fuel = maxFuel
   pod.grappled = null
   pod.dockArmed = false
 }
@@ -49,6 +49,7 @@ export function updatePodFlight(
   input: InputState,
   map: TileMap,
   dt: number,
+  thrustMul = 1,
 ): PodFlightResult {
   const t = TUNE.pod
   pod.angle += ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * t.turnRate * dt
@@ -57,8 +58,8 @@ export function updatePodFlight(
   let ax = 0
   let ay = TUNE.gravity
   if (pod.thrusting) {
-    ax += Math.sin(pod.angle) * t.thrust
-    ay += -Math.cos(pod.angle) * t.thrust
+    ax += Math.sin(pod.angle) * t.thrust * thrustMul
+    ay += -Math.cos(pod.angle) * t.thrust * thrustMul
     pod.fuel = Math.max(0, pod.fuel - t.fuelBurn * dt)
   }
 

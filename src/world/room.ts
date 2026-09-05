@@ -23,6 +23,7 @@ export type ItemKind =
   | 'grapple'
   | 'weapon'
   | 'relic'
+  | 'core'
 
 export interface PadDef {
   type: 'pad'

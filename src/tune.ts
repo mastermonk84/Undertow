@@ -24,7 +24,11 @@ export const TUNE = {
   pod: {
     r: 7,
     mass: 1,
-    thrust: 240, // px/s^2 along facing
+    // Thrust force vs cargo weight is the mass gate: the pod hover-lifts a
+    // cargo only while thrust > (1 + cargoMass) * gravity. At 320 the pod
+    // lifts up to ~1.1 mass; with the engine upgrade (x1.45) up to ~2.0.
+    // Heavier cargo must be dragged and swung, Solar Jetman style.
+    thrust: 320, // px/s^2 along facing
     turnRate: 4.4, // rad/s
     fuelMax: 100,
     fuelBurn: 8.5, // fuel/s while thrusting
@@ -43,7 +47,9 @@ export const TUNE = {
   },
 
   upgrades: {
-    engineThrustMul: 1.45, // ship main+lateral thrust multiplier
+    engineThrustMul: 1.45, // ship AND pod thrust multiplier
+    fuelMul: 1.6, // pod tank capacity multiplier
+    ropeLenMul: 1.4, // grapple winch rope length multiplier
   },
 
   landing: {

@@ -7,7 +7,7 @@ import { newGame, update } from '../src/game/state'
 import { AIR, DOOR, cellAt } from '../src/physics/tiles'
 import { TUNE } from '../src/tune'
 import { buildWorld } from '../src/world/room'
-import { sandbox } from '../src/world/rooms/sandbox'
+import { rooms } from '../src/world/rooms/world'
 
 const DT = 1 / 60
 const IDLE: InputState = {
@@ -21,7 +21,7 @@ const IDLE: InputState = {
 }
 
 function freshGame() {
-  return newGame(buildWorld([sandbox], TUNE.tileSize), 'padA')
+  return newGame(buildWorld(rooms, TUNE.tileSize), 'padA')
 }
 
 function tick(state: ReturnType<typeof freshGame>, n = 1, input: Partial<InputState> = {}) {
@@ -35,7 +35,7 @@ describe('full loop mechanisms', () => {
     const s = freshGame()
     expect(s.mode).toBe('landed')
     expect(s.world.doors[0].open).toBe(false)
-    expect(cellAt(s.world.map, 60, 25)).toBe(DOOR)
+    expect(cellAt(s.world.map, 120, 23)).toBe(DOOR)
   })
 
   it('crate resting on the plate opens the door; removing it closes it', () => {
@@ -47,13 +47,13 @@ describe('full loop mechanisms', () => {
     s = tick(s, 30)
     expect(plate.pressed).toBe(true)
     expect(s.world.doors[0].open).toBe(true)
-    expect(cellAt(s.world.map, 60, 25)).toBe(AIR)
+    expect(cellAt(s.world.map, 120, 23)).toBe(AIR)
 
     crate.body.x = plate.rect.x - 200
     s = tick(s, 30)
     expect(plate.pressed).toBe(false)
     expect(s.world.doors[0].open).toBe(false)
-    expect(cellAt(s.world.map, 60, 25)).toBe(DOOR)
+    expect(cellAt(s.world.map, 120, 23)).toBe(DOOR)
   })
 
   it('docking while towing the engine installs it and boosts ship thrust', () => {
