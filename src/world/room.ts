@@ -112,6 +112,7 @@ export interface World {
   plates: Plate[]
   doors: Door[]
   itemDefs: WorldItemDef[]
+  barrierTiles: { tx: number; ty: number }[] // original '%' cells, for resets
 }
 
 const CHAR_CODES: Record<string, number> = {
@@ -130,7 +131,15 @@ export function buildWorld(defs: RoomDef[], size: number): World {
   }
   const map = makeTileMap(wTiles, hTiles, size)
 
-  const world: World = { map, rooms: [], pads: [], plates: [], doors: [], itemDefs: [] }
+  const world: World = {
+    map,
+    rooms: [],
+    pads: [],
+    plates: [],
+    doors: [],
+    itemDefs: [],
+    barrierTiles: [],
+  }
 
   for (const d of defs) {
     const cols = d.grid[0].length
@@ -143,6 +152,7 @@ export function buildWorld(defs: RoomDef[], size: number): World {
         const code = CHAR_CODES[row[rx]]
         if (code === undefined) throw new Error(`room ${d.id}: unknown tile '${row[rx]}'`)
         if (code !== AIR) setCell(map, d.tx + rx, d.ty + ry, code)
+        if (code === BARRIER) world.barrierTiles.push({ tx: d.tx + rx, ty: d.ty + ry })
       }
     }
 

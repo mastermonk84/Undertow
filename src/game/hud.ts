@@ -42,6 +42,8 @@ export function buildHud(state: GameState): Hud {
     case 'won':
       prompt = 'Enter play again'
       break
+    case 'paused':
+      break
   }
 
   const upgrades: string[] = []

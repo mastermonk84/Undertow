@@ -1,6 +1,6 @@
 import { startLoop } from './core/loop'
 import { Input } from './core/input'
-import { update, newGame } from './game/state'
+import { update, startGame } from './game/state'
 import { draw } from './render/draw'
 import { TUNE } from './tune'
 import { buildWorld } from './world/room'
@@ -21,7 +21,7 @@ window.addEventListener('resize', fit)
 
 const input = new Input(window)
 const world = buildWorld(rooms, TUNE.tileSize)
-let state = newGame(world, 'padA')
+let state = startGame(world)
 
 startLoop(
   (dt) => {

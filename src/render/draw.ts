@@ -299,7 +299,22 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.font = '14px monospace'
     ctx.fillStyle = '#c8d2dd'
     ctx.fillText(hud.deathReason, vw / 2, vh / 2 - 4)
-    ctx.fillText('Press Enter to retry', vw / 2, vh / 2 + 24)
+    ctx.fillText('Press Enter to return to your last pad', vw / 2, vh / 2 + 24)
+    ctx.textAlign = 'left'
+  }
+
+  if (hud.mode === 'paused') {
+    ctx.fillStyle = 'rgba(6,8,12,0.7)'
+    ctx.fillRect(0, 0, vw, vh)
+    ctx.textAlign = 'center'
+    ctx.font = '26px monospace'
+    ctx.fillStyle = '#e6eef6'
+    ctx.fillText('PAUSED', vw / 2, vh / 2 - 56)
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#c8d2dd'
+    ctx.fillText('Esc / Enter — resume', vw / 2, vh / 2 - 12)
+    ctx.fillText('E — restart from last pad', vw / 2, vh / 2 + 12)
+    ctx.fillText('N — abandon save, new expedition', vw / 2, vh / 2 + 36)
     ctx.textAlign = 'left'
   }
 }

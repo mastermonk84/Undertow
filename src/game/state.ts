@@ -5,14 +5,15 @@ import { makeCamera, updateCamera, type Camera } from '../core/camera'
 import type { InputState } from '../core/input'
 import { classifyLanding } from '../physics/landing'
 import { solveRope } from '../physics/rope'
-import { DOOR, PAD, groundCodeUnder, setCell } from '../physics/tiles'
+import { AIR, BARRIER, DOOR, PAD, groundCodeUnder, setCell } from '../physics/tiles'
 import { TUNE } from '../tune'
 import { roomAt, type Pad as WorldPad, type World } from '../world/room'
+import { clearSave, readSave, writeSave, type SaveData } from '../world/save'
 import { makeItems, nearestItem, updateItems, updatePlatesAndDoors, type Item } from './objects'
 import { dockPoint, makeShip, updateShipFlight, type Ship } from './ship'
 import { launchPod, makePod, updatePodFlight, type Pod } from './pod'
 
-export type Mode = 'flight' | 'landed' | 'pod' | 'dead' | 'won'
+export type Mode = 'flight' | 'landed' | 'pod' | 'dead' | 'won' | 'paused'
 
 export interface Upgrades {
   engine: boolean
@@ -34,6 +35,10 @@ export interface GameState {
   ropeTaut: boolean
   ropeStrain: number
   deathReason: string
+  deadCooldown: number
+  pausedFrom: Mode
+  barriersCleared: Set<string> // "tx,ty" (M5)
+  bossDead: boolean // (M7)
   message: string
   messageTimer: number
   time: number
@@ -44,7 +49,7 @@ function say(state: GameState, text: string, seconds = 2.5): void {
   state.messageTimer = seconds
 }
 
-export function newGame(world: World, startPadId: string): GameState {
+export function newGame(world: World, startPadId: string, save?: SaveData): GameState {
   const pad = world.pads.find((p) => p.id === startPadId)
   if (!pad) throw new Error(`no pad ${startPadId}`)
 
@@ -54,10 +59,13 @@ export function newGame(world: World, startPadId: string): GameState {
     for (const t of door.tiles) setCell(world.map, t.tx, t.ty, DOOR)
   }
   for (const plate of world.plates) plate.pressed = false
+  for (const t of world.barrierTiles) setCell(world.map, t.tx, t.ty, BARRIER)
   const ship = makeShip(pad.rect.x + pad.rect.w / 2, pad.rect.y - TUNE.ship.h / 2 - 0.1)
 
   const state: GameState = {
-    upgrades: { engine: false, fueltank: false, grapple: false, weapon: false },
+    upgrades: save
+      ? { ...save.upgrades }
+      : { engine: false, fueltank: false, grapple: false, weapon: false },
     mode: 'landed',
     ship,
     pod: makePod(),
@@ -69,9 +77,31 @@ export function newGame(world: World, startPadId: string): GameState {
     ropeTaut: false,
     ropeStrain: 0,
     deathReason: '',
+    deadCooldown: 0,
+    pausedFrom: 'landed',
+    barriersCleared: new Set(save?.barriersCleared ?? []),
+    bossDead: save?.bossDead ?? false,
     message: '',
     messageTimer: 0,
     time: 0,
+  }
+
+  if (save) {
+    for (const item of state.items) {
+      if (save.itemsDelivered.includes(item.def.id)) item.delivered = true
+      const pos = save.itemPositions[item.def.id]
+      if (pos) {
+        item.body.x = pos.x
+        item.body.y = pos.y
+        item.body.px = pos.x
+        item.body.py = pos.y
+      }
+    }
+  }
+  // Re-open any blasted barrier cells (persisted across saves).
+  for (const key of state.barriersCleared) {
+    const [tx, ty] = key.split(',').map(Number)
+    setCell(world.map, tx, ty, AIR)
   }
   // Snap the camera to the ship instead of lerping in from (0,0).
   const room = state.world.rooms.find((r) => r.id === state.currentRoomId)!
@@ -93,6 +123,29 @@ function padUnderShip(state: GameState): WorldPad | undefined {
 function die(state: GameState, reason: string): void {
   state.mode = 'dead'
   state.deathReason = reason
+  state.deadCooldown = 0.9
+}
+
+/** Boot entry: resume the save if one exists, else a fresh game at Pad A. */
+export function startGame(world: World): GameState {
+  const save = readSave()
+  return save ? newGame(world, save.padId, save) : newGame(world, 'padA')
+}
+
+function saveGame(state: GameState): void {
+  const itemPositions: SaveData['itemPositions'] = {}
+  for (const item of state.items) {
+    if (!item.delivered) itemPositions[item.def.id] = { x: item.body.x, y: item.body.y }
+  }
+  writeSave({
+    version: 1,
+    padId: state.lastPadId ?? 'padA',
+    upgrades: { ...state.upgrades },
+    itemsDelivered: state.items.filter((i) => i.delivered).map((i) => i.def.id),
+    itemPositions,
+    barriersCleared: [...state.barriersCleared],
+    bossDead: state.bossDead,
+  })
 }
 
 export function maxFuel(state: GameState): number {
@@ -127,7 +180,8 @@ function updateFlight(state: GameState, input: InputState, dt: number): void {
       state.ship.thrusting = false
       if (landing.kind === 'soft') {
         state.ship.hull = TUNE.ship.hullMax
-        say(state, 'Touchdown. Hull repaired.')
+        saveGame(state)
+        say(state, 'Touchdown. Hull repaired. Progress saved.')
       } else {
         state.ship.hull -= landing.damage
         say(state, 'Hard landing. Set down gently to repair.')
@@ -250,6 +304,7 @@ function deliver(state: GameState, item: Item): void {
       // Rocks, boulders, crates just get set down.
       break
   }
+  if (item.delivered) saveGame(state)
 }
 
 export function update(state: GameState, input: InputState, dt: number): GameState {
@@ -257,6 +312,15 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
   if (state.messageTimer > 0) {
     state.messageTimer -= dt
     if (state.messageTimer <= 0) state.message = ''
+  }
+
+  if (
+    input.pause &&
+    (state.mode === 'flight' || state.mode === 'landed' || state.mode === 'pod')
+  ) {
+    state.pausedFrom = state.mode
+    state.mode = 'paused'
+    return state
   }
 
   switch (state.mode) {
@@ -270,11 +334,25 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
       updatePod(state, input, dt)
       break
     case 'dead':
-      if (input.confirm) return newGame(state.world, 'padA')
+      state.deadCooldown -= dt
+      if (input.confirm && state.deadCooldown <= 0) return startGame(state.world)
       break
     case 'won':
-      if (input.confirm) return newGame(state.world, 'padA')
+      if (input.confirm) {
+        clearSave()
+        return newGame(state.world, 'padA')
+      }
       break
+    case 'paused':
+      if (input.pause || input.confirm) {
+        state.mode = state.pausedFrom
+      } else if (input.action) {
+        return startGame(state.world) // restart from last pad
+      } else if (input.reset) {
+        clearSave()
+        return newGame(state.world, 'padA')
+      }
+      return state
   }
 
   // Items, plates, and doors exist in the world whatever the mode.

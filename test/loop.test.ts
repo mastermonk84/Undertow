@@ -18,6 +18,7 @@ const IDLE: InputState = {
   confirm: false,
   pause: false,
   fire: false,
+  reset: false,
 }
 
 function freshGame() {
