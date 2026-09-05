@@ -3,7 +3,7 @@
 import { accelerate, beginTick, makeBody, type Body } from '../physics/body'
 import { AIR, DOOR, moveBody, setCell, type TileMap } from '../physics/tiles'
 import { TUNE } from '../tune'
-import type { World, WorldItemDef } from '../world/room'
+import type { Door, World, WorldItemDef } from '../world/room'
 
 export interface Item {
   def: WorldItemDef
@@ -28,8 +28,11 @@ export function updateItems(items: Item[], map: TileMap, dt: number): void {
   }
 }
 
-/** Plates press while any undelivered item rests on them; doors track their plate. */
-export function updatePlatesAndDoors(world: World, items: Item[]): void {
+/**
+ * Plates press while any undelivered item rests on them; doors track their
+ * plate. Returns the doors that toggled this tick (for audio/FX).
+ */
+export function updatePlatesAndDoors(world: World, items: Item[]): Door[] {
   for (const plate of world.plates) {
     plate.pressed = items.some((item) => {
       if (item.delivered) return false
@@ -44,6 +47,7 @@ export function updatePlatesAndDoors(world: World, items: Item[]): void {
     })
   }
 
+  const toggled: Door[] = []
   for (const door of world.doors) {
     const plate = world.plates.find((p) => p.id === door.openBy)
     const shouldOpen = plate?.pressed ?? door.open
@@ -52,8 +56,10 @@ export function updatePlatesAndDoors(world: World, items: Item[]): void {
       for (const t of door.tiles) {
         setCell(world.map, t.tx, t.ty, shouldOpen ? AIR : DOOR)
       }
+      toggled.push(door)
     }
   }
+  return toggled
 }
 
 export function nearestItem(items: Item[], x: number, y: number, range: number): Item | null {

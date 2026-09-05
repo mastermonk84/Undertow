@@ -41,6 +41,14 @@ export interface Shot {
   ttl: number
 }
 
+// Feel events for audio/particles, drained by main each tick.
+export interface GameEvent {
+  kind: 'thud' | 'impact' | 'boom' | 'shot' | 'blast' | 'chime' | 'door' | 'launch'
+  x: number
+  y: number
+  intensity: number
+}
+
 export interface GameState {
   upgrades: Upgrades
   mode: Mode
@@ -54,6 +62,8 @@ export interface GameState {
   ropeTaut: boolean
   ropeStrain: number
   shots: Shot[]
+  events: GameEvent[]
+  shake: number
   deathReason: string
   deadCooldown: number
   pausedFrom: Mode
@@ -67,6 +77,14 @@ export interface GameState {
 function say(state: GameState, text: string, seconds = 2.5): void {
   state.message = text
   state.messageTimer = seconds
+}
+
+function emit(state: GameState, kind: GameEvent['kind'], x: number, y: number, intensity = 1): void {
+  state.events.push({ kind, x, y, intensity })
+}
+
+function kick(state: GameState, amount: number): void {
+  state.shake = Math.min(16, Math.max(state.shake, amount))
 }
 
 export function newGame(world: World, startPadId: string, save?: SaveData): GameState {
@@ -97,6 +115,8 @@ export function newGame(world: World, startPadId: string, save?: SaveData): Game
     ropeTaut: false,
     ropeStrain: 0,
     shots: [],
+    events: [],
+    shake: 0,
     deathReason: '',
     deadCooldown: 0,
     pausedFrom: 'landed',
@@ -141,10 +161,12 @@ function padUnderShip(state: GameState): WorldPad | undefined {
   )
 }
 
-function die(state: GameState, reason: string): void {
+function die(state: GameState, reason: string, x?: number, y?: number): void {
   state.mode = 'dead'
   state.deathReason = reason
   state.deadCooldown = 0.9
+  emit(state, 'boom', x ?? state.ship.body.x, y ?? state.ship.body.y, 1.2)
+  kick(state, 13)
 }
 
 /** Boot entry: resume the save if one exists, else a fresh game at Pad A. */
@@ -187,6 +209,8 @@ function updateFlight(state: GameState, input: InputState, dt: number): void {
 
   if (res.wallImpact > TUNE.landing.softVx) {
     state.ship.hull -= (res.wallImpact - TUNE.landing.softVx) * TUNE.ship.groundScrapeDamage
+    emit(state, 'impact', state.ship.body.x, state.ship.body.y, res.wallImpact / 200)
+    kick(state, 3)
   }
 
   if (res.touchdown) {
@@ -207,9 +231,13 @@ function updateFlight(state: GameState, input: InputState, dt: number): void {
         state.ship.hull = TUNE.ship.hullMax
         saveGame(state)
         say(state, 'Touchdown. Hull repaired. Progress saved.')
+        emit(state, 'thud', state.ship.body.x, state.ship.body.y + state.ship.body.h / 2, 0.8)
+        kick(state, 2)
       } else {
         state.ship.hull -= landing.damage
         say(state, 'Hard landing. Set down gently to repair.')
+        emit(state, 'impact', state.ship.body.x, state.ship.body.y + state.ship.body.h / 2, 1)
+        kick(state, 6)
       }
     } else if (vy > TUNE.landing.crashVy) {
       die(state, 'The ship broke apart on the rocks.')
@@ -217,6 +245,10 @@ function updateFlight(state: GameState, input: InputState, dt: number): void {
     } else if (vy > TUNE.landing.softVy) {
       state.ship.hull -= (vy - TUNE.landing.softVy) * TUNE.ship.groundScrapeDamage * 4
       say(state, 'Rough ground. Find a pad.', 1.5)
+      emit(state, 'impact', state.ship.body.x, state.ship.body.y + state.ship.body.h / 2, 0.6)
+      kick(state, 4)
+    } else {
+      emit(state, 'thud', state.ship.body.x, state.ship.body.y + state.ship.body.h / 2, 0.4)
     }
   }
 
@@ -229,6 +261,7 @@ function updateLanded(state: GameState, input: InputState): void {
     const p = dockPoint(state.ship)
     launchPod(state.pod, p.x, p.y - TUNE.pod.r - 2, maxFuel(state))
     state.mode = 'pod'
+    emit(state, 'launch', p.x, p.y, 0.5)
     return
   }
   if (input.thrust) {
@@ -269,6 +302,7 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
 
   if (input.fire && state.upgrades.weapon && pod.fireCooldown <= 0) {
     pod.fireCooldown = TUNE.weapon.cooldown
+    emit(state, 'shot', pod.body.x, pod.body.y, 0.7)
     state.shots.push({
       x: pod.body.x + Math.sin(pod.angle) * (TUNE.pod.r + 3),
       y: pod.body.y - Math.cos(pod.angle) * (TUNE.pod.r + 3),
@@ -284,7 +318,7 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   const thrustMul = state.upgrades.engine ? TUNE.upgrades.engineThrustMul : 1
   const res = updatePodFlight(pod, input, state.world.map, dt, thrustMul)
   if (res.impact > TUNE.pod.crashSpeed) {
-    die(state, 'The pod was smashed against the rock.')
+    die(state, 'The pod was smashed against the rock.', pod.body.x, pod.body.y)
     return
   }
 
@@ -320,9 +354,11 @@ function updatePod(state: GameState, input: InputState, dt: number): void {
   } else if (dockDist < TUNE.pod.dockRange) {
     const towed = pod.grappled ? state.items.find((i) => i.def.id === pod.grappled) : undefined
     pod.grappled = null
+    pod.wallAnchor = null
     pod.fuel = maxFuel(state)
     state.mode = 'landed'
     say(state, 'Pod docked. Fuel topped up.', 1.6)
+    emit(state, 'chime', dock.x, dock.y, 0.5)
     if (towed) deliver(state, towed)
   }
 }
@@ -365,7 +401,10 @@ function deliver(state: GameState, item: Item): void {
       // Rocks, boulders, crates just get set down.
       break
   }
-  if (item.delivered) saveGame(state)
+  if (item.delivered) {
+    emit(state, 'chime', state.ship.body.x, state.ship.body.y - 20, 1)
+    saveGame(state)
+  }
 }
 
 function updateShots(state: GameState, dt: number): void {
@@ -398,6 +437,8 @@ function updateShots(state: GameState, dt: number): void {
         }
       }
       say(state, 'The rock crumbles.', 1.0)
+      emit(state, 'blast', shot.x, shot.y, 1)
+      kick(state, 6)
     }
   }
   state.shots = state.shots.filter((shot) => shot.ttl > 0)
@@ -405,6 +446,8 @@ function updateShots(state: GameState, dt: number): void {
 
 export function update(state: GameState, input: InputState, dt: number): GameState {
   state.time += dt
+  state.events.length = 0
+  state.shake *= Math.exp(-5 * dt)
   if (state.messageTimer > 0) {
     state.messageTimer -= dt
     if (state.messageTimer <= 0) state.message = ''
@@ -453,7 +496,10 @@ export function update(state: GameState, input: InputState, dt: number): GameSta
 
   // Items, plates, doors, and shots exist in the world whatever the mode.
   updateItems(state.items, state.world.map, dt)
-  updatePlatesAndDoors(state.world, state.items)
+  for (const door of updatePlatesAndDoors(state.world, state.items)) {
+    const t = door.tiles[0]
+    emit(state, 'door', (t.tx + 0.5) * 16, (t.ty + 0.5) * 16, 0.8)
+  }
   updateShots(state, dt)
 
   const focus = state.mode === 'pod' ? state.pod.body : state.ship.body

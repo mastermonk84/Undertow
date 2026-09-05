@@ -4,8 +4,9 @@ import type { Body } from '../physics/body'
 import { AIR, BARRIER, DOOR, PAD, ROCK, cellAt } from '../physics/tiles'
 import { TUNE } from '../tune'
 import { buildHud } from '../game/hud'
-import type { GameState } from '../game/state'
+import { ropeLength, type GameState } from '../game/state'
 import type { Item } from '../game/objects'
+import type { Particles } from './particles'
 
 function ix(b: Body, alpha: number): number {
   return b.px + (b.x - b.px) * alpha
@@ -22,7 +23,12 @@ const PAD_EDGE = '#3fe08f'
 const DOOR_FILL = '#4a3566'
 const BARRIER_FILL = '#5e2c2c'
 
-export function draw(ctx: CanvasRenderingContext2D, state: GameState, alpha: number): void {
+export function draw(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  alpha: number,
+  particles?: Particles,
+): void {
   const { w: vw, h: vh } = TUNE.view
   const cam = state.camera
 
@@ -32,14 +38,18 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, alpha: num
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, vw, vh)
 
+  const shakeX = (Math.random() - 0.5) * 2 * state.shake
+  const shakeY = (Math.random() - 0.5) * 2 * state.shake
+
   ctx.save()
-  ctx.translate(-Math.round(cam.x), -Math.round(cam.y))
+  ctx.translate(-Math.round(cam.x + shakeX), -Math.round(cam.y + shakeY))
 
   drawTiles(ctx, state)
   drawPlates(ctx, state)
   for (const item of state.items) drawItem(ctx, item, alpha)
   drawRope(ctx, state, alpha)
   drawShots(ctx, state, alpha)
+  particles?.draw(ctx)
   drawShip(ctx, state, alpha)
   if (state.mode === 'pod') drawPod(ctx, state, alpha)
 
@@ -152,11 +162,20 @@ function drawRope(ctx: CanvasRenderingContext2D, state: GameState, alpha: number
   } else {
     return
   }
+  const px = ix(state.pod.body, alpha)
+  const py = iy(state.pod.body, alpha)
   ctx.strokeStyle = state.ropeTaut ? '#d8e0ea' : 'rgba(216,224,234,0.45)'
   ctx.lineWidth = state.ropeTaut ? 1.5 : 1
   ctx.beginPath()
-  ctx.moveTo(ix(state.pod.body, alpha), iy(state.pod.body, alpha))
-  ctx.lineTo(tx, ty)
+  ctx.moveTo(px, py)
+  if (state.ropeTaut) {
+    ctx.lineTo(tx, ty)
+  } else {
+    // Slack rope sags toward gravity.
+    const dist = Math.hypot(tx - px, ty - py)
+    const sag = Math.min(40, (ropeLength(state) - dist) * 0.35)
+    ctx.quadraticCurveTo((px + tx) / 2, (py + ty) / 2 + sag, tx, ty)
+  }
   ctx.stroke()
   ctx.lineWidth = 1
 }
