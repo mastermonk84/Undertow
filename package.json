@@ -7,12 +7,25 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "husky",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
     "playwright-core": "^1.63.0",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.71.1",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": [
+      "eslint --fix"
+    ]
   }
 }
